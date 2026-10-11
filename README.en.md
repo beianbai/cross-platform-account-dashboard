@@ -19,6 +19,15 @@ View account metrics, daily changes, and loaded posts from Xiaohongshu (RED), Do
 | What have I published recently? | Your own posts currently loaded on the page; the loaded list is not treated as the total post count |
 | Can I keep a history without syncing manually each time? | Per-platform schedules: once daily or every 1 / 3 / 6 / 12 hours; disabled by default |
 
+<details>
+<summary>View one platform in detail: account metrics, daily trends, and posts</summary>
+
+[![Bilibili account details with followers, following, likes, and submissions, a 30-day follower trend, daily net changes, and video, image/text, and audio posts](assets/account-detail.png)](assets/account-detail.png)
+
+*Actual detail page with a synthetic account and demo data. Gaps in the chart represent unobserved dates. Click the image to view it at full size.*
+
+</details>
+
 Run it on its own or inside [DSH Desktop](https://dshdesktop.com/). Each platform currently holds one bound account; unbind it before switching accounts. **The local service (or DSH Desktop) and the connected browser must stay running for syncing.** Sleep and downtime are not recorded or backfilled.
 
 ## Get started
