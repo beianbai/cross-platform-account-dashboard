@@ -33,7 +33,19 @@ async function pump(){
       }
       if(!tabId){const tab=await api.tabs.create({url:'about:blank',active:!job.automatic});tabId=tab.id;preserveTab=false;tabsByPlatform[job.platform]=tabId;await api.storage.local.set({tabsByPlatform});}
       page=createPageAdapter(api,tabId,job.platform,{automatic:job.automatic});await report('正在读取平台；未登录时请亲自登录，不需要提供密码给工作台。','reading',job.platform);
-      const raw=await collect({page,platform:job.platform,url:job.url});result={id:job.id,status:'ok',raw};
+      let sequence=0;
+      const onBatch=job.protocol===2?async raw=>{
+        let acknowledgement;
+        for(let attempt=0;attempt<2;attempt++){
+          try{acknowledgement=await request(connection,'/batch',{id:job.id,sequence,raw});break;}
+          catch(error){if(attempt)throw Object.assign(error,{status:'connection_offline'});}
+        }
+        sequence++;
+        await report(`已保存第 ${sequence} 批作品，正在继续读取…`,'reading',job.platform);
+        return acknowledgement;
+      }:undefined;
+      const raw=await collect({page,platform:job.platform,url:job.url,...(onBatch?{collection:job.collection,onBatch}:{})});
+      result={id:job.id,status:'ok',...(onBatch?{}:{raw})};
     }
     catch(error){const status=error?.status|| (page?await classifyCollectionError(error,page):'connection_offline');result={id:job.id,status};
       if(tabId){tabsByPlatform[job.platform]=status==='network_error'?{id:tabId,retryable:true}:tabId;await api.storage.local.set({tabsByPlatform});}

@@ -154,6 +154,16 @@ if (params.has("populated"))
       lastResult: "同步完成",
     };
   }
+if (params.has("library")) for (const account of Object.values(state.accounts)) {
+  account.works = Array.from({ length: 79 }, (_, n) => ({ id: String(n), title: ["山野里的周末", "沿途的光", "城市漫步"][n % 3] + ` · ${n + 1}`, kind: ["视频", "图文", "音频"][n % 3], url: account.url, cover: cover(n), firstSeenAt: new Date(Date.now() - n * 86400000).toISOString() }));
+  account.workLibrary = { total: 79, added: 7, updated: 2 };
+  const partial = params.has("history") || params.has("paused");
+  account.workSync = { mode: partial ? "history" : "incremental", status: partial ? "paused" : "incremental", historyComplete: !partial, scanned: 79, ...(partial ? { historyCheckpoint: { page: 4 } } : { historyCompletedAt: new Date().toISOString() }) };
+  account.workCount = m(partial ? 116 : 79);
+  account.coverage = { video: { total: m(partial ? 45 : 27), loaded: 27, status: partial ? "partial" : "complete" }, opus: { total: m(partial ? 35 : 26), loaded: 26, status: partial ? "partial" : "complete" }, audio: { total: m(partial ? 36 : 26), loaded: 26, status: partial ? "partial" : "complete" } };
+  if (params.has("legacy")) { delete account.workSync; delete account.workLibrary; for (const item of Object.values(account.coverage)) item.status = "partial"; }
+  account.scope = "读取本人发布的作品，按批保存。";
+}
 if (params.has("sparse")) for (const account of Object.values(state.accounts)) account.daily = account.daily.slice(-1);
 if (params.has("archive")) state.archives.push({ platform: "bilibili", archivedAt: "2026-10-09T12:00:00Z", account: sample("bilibili") });
 if (params.has("login"))
@@ -181,14 +191,22 @@ window.fetch = async (url, opts) => {
     state.browserConnection.online = false;
     return Response.json({ ok: true });
   }
+  if (path.endsWith("/sync/pause")) {
+    const job = state.syncByPlatform[body.platform];
+    if (job) Object.assign(job, { running: false, phase: "paused" });
+    if (state.accounts[body.platform]?.workSync) state.accounts[body.platform].workSync.status = "paused";
+    return Response.json({ paused: true });
+  }
   if (path.endsWith("/sync") || path.endsWith("/login")) {
     const jobId = "preview-" + Date.now();
     state.syncByPlatform[body.platform] = { jobId, automatic: false, completedAt: null, running: true, phase: "queued", provider: body.provider, platform: body.platform, error: "", lastResult: "等待同步" };
-    setTimeout(() => { state.syncByPlatform[body.platform] = { ...state.syncByPlatform[body.platform], phase: "reading", lastResult: "正在读取" }; }, 600);
+    setTimeout(() => { state.syncByPlatform[body.platform] = { ...state.syncByPlatform[body.platform], phase: "reading", progress: { saved: 24, added: 7, batches: 1, mode: body.mode || "history" }, lastResult: "正在读取" }; }, 600);
     setTimeout(() => {
+      if (state.syncByPlatform[body.platform]?.phase === "paused") return;
       if (!params.has("syncerror")) {
         state.accounts[body.platform] ||= sample(body.platform);
         state.accounts[body.platform].syncedAt = new Date().toISOString();
+        state.accounts[body.platform].workSync = { ...state.accounts[body.platform].workSync, mode: body.mode || "history", status: body.mode === "incremental" ? "incremental" : "complete", historyComplete: body.mode === "history" || !!state.accounts[body.platform].workSync?.historyComplete };
       }
       state.syncByPlatform[body.platform] = { ...state.syncByPlatform[body.platform], completedAt: new Date().toISOString(), running: false, phase: params.has("syncerror") ? "network_error" : "complete", error: params.has("syncerror") ? "平台页面暂未响应，请检查浏览器后重试。" : "", lastResult: params.has("syncerror") ? "同步未完成" : "同步完成" };
     }, 2200);

@@ -2,7 +2,7 @@
 
 [简体中文](README.md) · **English**
 
-View account metrics, daily changes, and loaded posts from Xiaohongshu (RED), Douyin, Bilibili, and X in one local dashboard. Connect a browser where you are already signed in, then sync manually or build a history on a schedule.
+View account metrics, daily changes, and a cumulative post library from Xiaohongshu (RED), Douyin, Bilibili, and X in one local dashboard. Connect a browser where you are already signed in, then sync manually or build a history on a schedule.
 
 [Get started](#get-started) · [Browser support](#browser-support) · [Usage guide — 中文](docs/USAGE.md) · [Contribute — 中文](CONTRIBUTING.md)
 
@@ -16,7 +16,7 @@ View account metrics, daily changes, and loaded posts from Xiaohongshu (RED), Do
 | --- | --- |
 | How are my accounts doing? | An overview of followers, following, total posts, and likes where the platform provides them |
 | What has changed recently? | 7 / 30 / 90-day trends and daily net changes; unknown values and unobserved days stay empty |
-| What have I published recently? | Your own posts currently loaded on the page; the loaded list is not treated as the total post count |
+| What have I published recently? | Backfill accessible history, then sync incrementally; saved posts accumulate and interrupted scans can resume |
 | Can I keep a history without syncing manually each time? | Per-platform schedules: once daily or every 1 / 3 / 6 / 12 hours; disabled by default |
 
 ### Single-platform detail view
@@ -101,12 +101,12 @@ In the platform settings, enable “自动同步” (Automatic sync) and choose 
 | Ego Lite | An optional adapter if already installed; not required |
 | Safari / mobile browsers / managed browsers that block local extensions | No collection adapter is available; existing cached data can still be viewed |
 
-Only one extension connection is authorized at a time; pairing again replaces the previous credentials. After updating the dashboard, [update the browser connector too — 中文](extension/README.md#050-更新).
+Only one extension connection is authorized at a time; pairing again replaces the previous credentials. After updating the dashboard, [update the browser connector too — 中文](extension/README.md#060-更新).
 
 ## Data and collection limits
 
 - **Stored locally.** Accounts, history, and authorization stay in a local directory. The standalone service listens only on `127.0.0.1`. See [storage, backups, and port settings — 中文](docs/USAGE.md#数据目录与备份).
-- **Read-only page collection.** No passwords or cookies are read, no private platform APIs or CAPTCHA bypasses are used, and no posts, likes, comments, or follows are made. **Each sync processes at most the first 200 posts loaded on the current page.** A successful sync replaces the post list; it does not build a cumulative post archive or traverse all pages. The 200-post cap is an implementation limit, not a platform restriction, and does not cap platform post totals or daily account metrics. See [collection scope — 中文](docs/USAGE.md#各平台读取范围).
+- **Incremental post library.** First backfill history accessible through the website, then sync incrementally by default. There is no 200-post lifetime cap. Each batch is acknowledged after saving; interrupted scans can resume, and unseen older posts are retained. Without explicit end evidence, coverage stays unconfirmed. Passwords, cookies, private APIs, and media-file downloads are not used. See [library and collection scope — 中文](docs/USAGE.md#各平台读取范围).
 - **Metrics keep their meaning.** Rounded values are marked as estimates. Net changes require consecutive calendar days in the same time zone. X's cumulative account likes remain unknown. See [platform-specific counting rules — 中文](docs/USAGE.md#各平台读取范围).
 - **Recoverable failures.** Sign-in, verification, or account-identity problems retain the last successful data and pause the affected platform. Hiding a platform does not stop its schedule. Unbinding stops its schedule and keeps a local archive; rebinding the same account can restore it.
 

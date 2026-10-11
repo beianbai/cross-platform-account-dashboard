@@ -293,6 +293,7 @@ test("resume preserves original provider and exact platform URL", async () => {
   await button(app.render(), "继续同步").props.onClick();
   assert.deepEqual(app.calls.find((c) => c.path.endsWith("/sync")).body, {
     platform: "douyin",
+    mode: "history",
     provider: "browser",
     url: "https://www.douyin.com/user/lin_film",
     resume: true,
@@ -879,31 +880,22 @@ test("guide recognizes a ready adapter and respects the selected provider", () =
   app.state.settings.provider = "browser";
   assert.equal(guideStep(app.render(), 0).props["data-complete"], false);
 });
-test("work snapshot distinguishes truncation, retained count, uncapped page and legacy uncertainty", () => {
-  for (const [collection, expected] of [
-    [{ limit: 200, received: 205, retained: 200, truncated: true }, "本次达到 200 条上限，还有返回内容未保存"],
-    [{ limit: 200, received: 1, retained: 1, truncated: false }, "仅本次页面已加载内容，未确认全量"],
-    [undefined, "旧记录未保存截断信息，下次同步后更新"],
-  ]) {
-    const app = fixture();
-    Object.assign(app.state.accounts.douyin, { workCollection: collection, workCount: value(collection?.retained || 1), works: [{ id: "one", title: "作品", url: "https://example.test/one" }] });
-    button(app.render(), "查看详情").props.onClick();
-    const content = text(app.render());
-    assert.match(content, /当前作品快照/);
-    assert(content.includes(`本次保留 ${collection?.retained || 1} 条`));
-    assert(content.includes(expected));
-    assert.match(content, /每次同步最多保留 200 条/);
-    assert.match(content, /查看平台采集范围当前个人主页作品/);
-    assert.match(content, /不是历史作品归档/);
-    assert(!content.includes("已保存全部作品"));
-  }
-});
-test("zero retained works remains unknown unless platform confirms empty", () => {
+test("work library preserves legacy uncertainty and cumulative counts", () => {
   const app = fixture();
-  app.state.accounts.douyin.workCollection = { limit: 200, received: 0, retained: 0, truncated: false };
+  Object.assign(app.state.accounts.douyin, { works: [{ id: "one", title: "作品" }] });
   button(app.render(), "查看详情").props.onClick();
-  assert.match(text(app.render()), /本次保留 0 条/);
-  assert.match(text(app.render()), /本次未读取到作品/);
+  assert.match(text(app.render()), /累计保存 1 条/);
+  assert.match(text(app.render()), /旧记录已纳入作品库，历史范围尚未确认/);
+  assert(!text(app.render()).includes("200 条上限"));
+  app.state.accounts.douyin.workSync = { historyComplete: true, mode: "incremental", status: "incremental" };
+  assert.match(text(app.render()), /历史曾确认读到末尾/);
+  assert.equal(nodes(app.render()).filter(n => n.props.className === "psw-snapshot-scope").length, 1);
+});
+test("zero works remains unknown unless platform confirms empty", () => {
+  const app = fixture();
+  button(app.render(), "查看详情").props.onClick();
+  assert.match(text(app.render()), /累计保存 0 条/);
+  assert.match(text(app.render()), /作品库暂无已保存作品/);
   app.state.accounts.douyin.worksStatus = "empty";
   assert.match(text(app.render()), /平台确认暂无作品/);
 });
@@ -926,19 +918,61 @@ test("guide resumes login in the original browser and only marks scheduling from
   existing.state.settings.platforms.douyin.schedule.enabled = true;
   assert.equal(guideStep(existing.render(), 3).props["data-complete"], true);
 });
-test("Bilibili snapshot cap is shared across content kinds and filters retain snapshot count", () => {
+test("library pages 55 works, filters and account changes reset the page", () => {
   const app = fixture();
   Object.assign(app.state.accounts.douyin, {
-    works: [{ id: "video", kind: "视频", title: "视频作品" }, { id: "opus", kind: "图文", title: "图文作品" }],
-    workCollection: { limit: 200, received: 250, retained: 200, truncated: true },
-    coverage: { video: { total: value(200), loaded: 199 }, opus: { total: value(50), loaded: 1 }, audio: { total: null, loaded: 0, status: "unavailable" } },
+    works: Array.from({ length: 55 }, (_, i) => ({ id: String(i), title: `作品编号${i}`, kind: i % 2 ? "图文" : "视频" })),
+    coverage: { video: { status: "partial" }, opus: { status: "partial" }, audio: { status: "unavailable" } },
   });
   button(app.render(), "查看详情").props.onClick();
-  assert.match(text(app.render()), /视频、图文、音频合计最多保留 200 条/);
+  const articles = () => nodes(app.render()).filter(n => n.type === "article" && n.props.className === "psw-work");
+  assert.equal(articles().length, 24);
+  assert.equal(button(app.render(), "上一页").props.disabled, true);
+  button(app.render(), "下一页").props.onClick();
+  assert.match(text(app.render()), /第 2 \/ 3 页/);
+  button(app.render(), "下一页").props.onClick();
+  assert.equal(articles().length, 7);
+  assert.equal(button(app.render(), "下一页").props.disabled, true);
   button(app.render(), "图文").props.onClick();
-  assert.match(text(app.render()), /本次保留 200 条/);
-  assert(!text(app.render()).includes("视频作品"));
-  assert.match(text(app.render()), /平台总量 —/);
+  assert.match(text(app.render()), /第 1 \/ 2 页/);
+  assert.equal(articles().length, 24);
+  button(app.render(), "下一页").props.onClick();
+  button(app.render(), "全部账号").props.onClick();
+  button(app.render(), "查看详情").props.onClick();
+  assert.match(text(app.render()), /第 1 \/ 3 页/);
+  assert.match(text(app.render()), /累计保存 55 条/);
+});
+test("library sync actions carry modes, restart, pause and default mode", async () => {
+  const app = fixture();
+  button(app.render(), "查看详情").props.onClick();
+  await button(app.render(), "增量同步").props.onClick();
+  assert.equal(app.calls.findLast(c => c.path.endsWith("/sync")).body.mode, "incremental");
+  app.state.syncByPlatform.douyin = { phase: "complete" };
+  await app.poll();
+  await button(app.render(), "补齐历史").props.onClick();
+  assert.equal(app.calls.findLast(c => c.path.endsWith("/sync")).body.mode, "history");
+  app.state.syncByPlatform.douyin = { phase: "paused" };
+  app.state.accounts.douyin.workSync = { status: "paused", historyCheckpoint: { page: 3 } };
+  await app.poll();
+  assert.match(text(app.render()), /已暂停/);
+  await button(app.render(), "继续补齐").props.onClick();
+  assert.equal(app.calls.findLast(c => c.path.endsWith("/sync")).body.resume, true);
+  assert.equal(app.calls.findLast(c => c.path.endsWith("/sync")).body.mode, "history");
+  app.state.syncByPlatform.douyin = { phase: "complete", completedAt: "later" };
+  await app.poll();
+  await button(app.render(), "重新扫描").props.onClick();
+  assert.equal(app.calls.findLast(c => c.path.endsWith("/sync")).body.restart, true);
+  assert.equal(app.calls.findLast(c => c.path.endsWith("/sync")).body.resume, true);
+  app.state.syncByPlatform.douyin = { phase: "reading", running: true, progress: { saved: 31, batches: 2 } };
+  await app.poll();
+  assert.match(text(app.render()), /已保存 31 条 · 已读取 2 批/);
+  await button(app.render(), "暂停").props.onClick();
+  assert.equal(app.calls.findLast(c => c.path.endsWith("/sync/pause")).body.platform, "douyin");
+  app.state.syncByPlatform.douyin = { phase: "paused", running: false };
+  app.state.accounts.douyin.workSync.historyComplete = true;
+  await app.poll();
+  await button(app.render(), "同步账号").props.onClick();
+  assert.equal(app.calls.findLast(c => c.path.endsWith("/sync")).body.mode, "incremental");
 });
 
 test("real service idle entries do not imply platform selection", () => {
@@ -986,4 +1020,49 @@ test("guide pairing completion does not claim the browser is currently online", 
   assert.equal(guideStep(tree, 0).props["data-complete"], true);
   assert.match(text(guideStep(tree, 0)), /已配置/);
   assert(!text(guideStep(tree, 0)).includes("已连接"));
+});
+
+test("archived library stays read-only and history is the legacy default", async () => {
+  const app = fixture();
+  button(app.render(), "查看详情").props.onClick();
+  await button(app.render(), "同步账号").props.onClick();
+  assert.equal(app.calls.findLast(c => c.path.endsWith("/sync")).body.mode, "history");
+  const archived = fixture();
+  archived.state.archives.push({ platform: "douyin", account: archived.state.accounts.douyin, archivedAt: new Date().toISOString() });
+  button(archived.render(), "设置").props.onClick();
+  button(archived.render(), "查看历史").props.onClick();
+  assert.match(text(archived.render()), /作品库/);
+  assert(!nodes(archived.render()).some(n => n.type === "button" && ["同步账号", "增量同步", "补齐历史", "重新扫描", "暂停"].includes(text(n))));
+});
+
+test("library recovery guidance prioritizes login, verification, errors and old connector", () => {
+  const app = fixture();
+  app.state.accounts.douyin.workSync = { status: "paused", reason: "time_budget" };
+  button(app.render(), "查看详情").props.onClick();
+  app.state.syncByPlatform.douyin = { phase: "needs_login" };
+  assert.match(text(app.render()), /请先在原浏览器登录/);
+  app.state.syncByPlatform.douyin = { phase: "needs_attention" };
+  assert.match(text(app.render()), /请先在原浏览器完成验证/);
+  app.state.syncByPlatform.douyin = { phase: "error", error: "网络离线" };
+  assert.match(text(app.render()), /同步未完成：网络离线/);
+  app.state.accounts.douyin.workSync.reason = "legacy_connector";
+  assert.match(text(app.render()), /请更新浏览器连接器后继续/);
+});
+
+test("paused incremental resumes its own mode and saved fallback is the library count", async () => {
+  const app = fixture();
+  app.state.accounts.douyin.workSync = { mode: "incremental", status: "paused", historyComplete: true, scanned: 450 };
+  app.state.accounts.douyin.works = [{ id: "a", title: "已保存作品" }];
+  button(app.render(), "查看详情").props.onClick();
+  assert.match(text(app.render()), /等待继续增量同步/);
+  assert(!text(app.render()).includes("等待继续补齐历史"));
+  await button(app.render(), "增量同步").props.onClick();
+  const request = app.calls.findLast(c => c.path.endsWith("/sync"));
+  assert.equal(request.body.resume, true);
+  assert.equal(request.body.mode, "incremental");
+  app.state.accounts.douyin.workSync.status = "running";
+  app.state.syncByPlatform.douyin = { phase: "reading", running: true };
+  await app.poll();
+  assert.match(text(app.render()), /已保存 1 条/);
+  assert(!text(app.render()).includes("已保存 450 条"));
 });

@@ -4,7 +4,7 @@ import {collect,classifyCollectionError,COLLECTION_MESSAGES} from './collector.m
 const marker='PERSONAL_SOCIAL_RESULT=';
 const spaceMarker='PERSONAL_SOCIAL_SPACE=';
 
-export async function collectInTaskSpace(runtime,{platform,url='',spaceId=null,resume=false,automatic=false},collector=collect){
+export async function collectInTaskSpace(runtime,{platform,url='',spaceId=null,resume=false,automatic=false,collection,onBatch},collector=collect){
   let task;
   try{
     if(spaceId!==null){
@@ -15,9 +15,9 @@ export async function collectInTaskSpace(runtime,{platform,url='',spaceId=null,r
     }else task=await runtime.taskSpace('个人账号工作台 · '+platform+' · 只读同步');
     runtime.onSpace?.(task.spaceId);
     if(task.ownership!=='agent')return {ok:false,spaceId:task.spaceId,status:'needs_attention',error:COLLECTION_MESSAGES.needs_attention};
-    const raw=await collector({task,page:task.page('p1'),platform,url});
+    const raw=await collector({task,page:task.page('p1'),platform,url,...(collection?{collection,onBatch}:{})});
     await task.finish({keep:[]});
-    return {ok:true,raw,spaceId:null};
+    return {ok:true,...(onBatch?{streamed:true}:{raw}),spaceId:null};
   }catch(error){
     let status=await classifyCollectionError(error);
     if(!task&&status!=='needs_attention')status='connection_offline';
@@ -26,11 +26,12 @@ export async function collectInTaskSpace(runtime,{platform,url='',spaceId=null,r
   }
 }
 
-export function runBrowser({executable,platform,url='',spaceId=null,resume=false,automatic=false,onChild=()=>{},execute=execFile}){
-  const options={platform,url,spaceId,resume,automatic};
-  const code=`const {collectInTaskSpace}=await import(${JSON.stringify(import.meta.url)});\nconst result=await collectInTaskSpace({taskSpace,takeOverTaskSpace,listTaskSpaces,onSpace:spaceId=>console.log(${JSON.stringify(spaceMarker)}+spaceId)},${JSON.stringify(options)});\nconsole.log(${JSON.stringify(marker)}+JSON.stringify(result));`;
+export function runBrowser({executable,platform,url='',spaceId=null,resume=false,automatic=false,collection,batchSession,onChild=()=>{},execute=execFile}){
+  const options={platform,url,spaceId,resume,automatic,...(collection?{collection}:{})};
+  const batchCode=batchSession?`let sequence=0;const session=${JSON.stringify({base:batchSession.base,token:batchSession.token,id:batchSession.id})};const onBatch=async raw=>{let ack;for(let attempt=0;attempt<2;attempt++){try{const response=await fetch(session.base+'/batch',{method:'POST',headers:{Authorization:'Bearer '+session.token,'Content-Type':'application/json'},body:JSON.stringify({id:session.id,sequence,raw}),signal:AbortSignal.timeout(12000)});ack=await response.json();if(!response.ok)throw Error(ack.error);break;}catch(e){if(attempt)throw Object.assign(e,{status:'connection_offline'});}}sequence++;return ack;};`:'const onBatch=undefined;';
+  const code=`${batchCode}const {collectInTaskSpace}=await import(${JSON.stringify(import.meta.url)});\nconst result=await collectInTaskSpace({taskSpace,takeOverTaskSpace,listTaskSpaces,onSpace:spaceId=>console.log(${JSON.stringify(spaceMarker)}+spaceId)},{...${JSON.stringify(options)},onBatch});\nconsole.log(${JSON.stringify(marker)}+JSON.stringify(result));`;
   return new Promise(resolve=>{
-    const child=execute(executable,['nodejs','-e',code],{encoding:'utf8',timeout:120000,maxBuffer:2*1024*1024,windowsHide:true},(error,stdout='',stderr='')=>{
+    const child=execute(executable,['nodejs','-e',code],{encoding:'utf8',timeout:180000,maxBuffer:2*1024*1024,windowsHide:true},(error,stdout='',stderr='')=>{
       const line=(stdout+'\n'+stderr).split(/\r?\n/).find(x=>x.startsWith(marker));
       if(line){try{const result=JSON.parse(line.slice(marker.length));if(typeof result.ok==='boolean')return resolve(result);}catch{}}
       const browserStatus=error?.code==='ENOENT'?'missing':['EACCES','EPERM'].includes(error?.code)?'not_executable':'unavailable';

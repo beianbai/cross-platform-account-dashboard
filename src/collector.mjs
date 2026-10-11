@@ -1,3 +1,4 @@
+import {traverseWorks} from './work-traversal.mjs';
 import {PLATFORM_BY_ID,X_RESERVED_HANDLES} from './platforms.mjs';
 // Read-only DOM extraction. No private APIs, cookies, password fields or page state stores.
 export const COLLECTION_MESSAGES={
@@ -28,7 +29,7 @@ export async function classifyCollectionError(error,page){
   return 'parse_error';
 }
 export async function collect(options){
-  try{return await collectVisible(options);}catch(error){throw collectionError(await classifyCollectionError(error,options.page));}
+  try{const started=Date.now(),raw=await collectVisible(options);return options.collection?await traverseWorks({...options,collection:{...options.collection,budgetMs:Math.max(1,Math.min(90000,options.collection.budgetMs??90000)-(Date.now()-started))}},raw):raw;}catch(error){throw collectionError(await classifyCollectionError(error,options.page));}
 }
 async function collectVisible({task,page,platform,url=''}) {
   if(platform==='x') {

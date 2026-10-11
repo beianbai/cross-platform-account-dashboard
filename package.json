@@ -1,6 +1,6 @@
 {
   "name": "dsh-workbench-personal-social-local",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "description": "小红书、抖音、哔哩哔哩、X，一个看板查看账号与作品。支持定时同步、每日趋势和本地历史记录，可扩展更多平台。",

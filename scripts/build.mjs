@@ -10,7 +10,7 @@ await writeFile(new URL('../lib/client.js',import.meta.url),'/* Built single-fil
 console.log('Built lib/client.js; syntax verified.');
 const {zipEntries}=await import('./zip.mjs');
 const packageJSON=JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8'));
-const sources=await Promise.all(['../src/platforms.mjs','../src/collector.mjs','../extension/adapter.mjs','../extension/background.mjs'].map(p=>readFile(new URL(p,import.meta.url),'utf8')));
+const sources=await Promise.all(['../src/platforms.mjs','../src/work-traversal.mjs','../src/collector.mjs','../extension/adapter.mjs','../extension/background.mjs'].map(p=>readFile(new URL(p,import.meta.url),'utf8')));
 const background='(()=>{\n'+sources.map(s=>s.replace(/^import .*;\n/gm,'').replace(/^export /gm,'')).join('\n')+'\n})();\n';new vm.Script(background);
 const shared=await Promise.all(['popup.html','popup.js','popup.css'].map(async name=>[name,await readFile(new URL('../extension/'+name,import.meta.url),'utf8')]));
 const manifest={manifest_version:3,name:'跨平台账号看板 · 浏览器连接',version:packageJSON.version,description:'在你自己的浏览器中登录，授权本机工作台只读同步账号与作品。',permissions:['storage','scripting','alarms'],host_permissions:['http://127.0.0.1/*','https://www.xiaohongshu.com/*','https://www.douyin.com/*','https://www.bilibili.com/*','https://space.bilibili.com/*','https://x.com/*','https://www.x.com/*'],icons:{16:'icon16.png',32:'icon32.png',48:'icon48.png',128:'icon128.png'},action:{default_popup:'popup.html',default_title:'跨平台账号看板',default_icon:{16:'icon16.png',32:'icon32.png'}},content_security_policy:{extension_pages:"script-src 'self'; object-src 'none'"}};

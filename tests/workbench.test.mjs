@@ -37,3 +37,38 @@ test('manual sync exposes a stable lifecycle id and completion only after persis
  await app.call('sync',{platform:'douyin'});const second=await jobFrom(browser);const retry=(await app.call('state')).data.syncByPlatform.douyin;assert.notEqual(retry.jobId,reading.jobId);assert.equal(retry.completedAt,null);
  await browser('/result',{id:second.id,status:'parse_error'});s=await wait(app,s=>!s.sync.running);assert.equal(s.syncByPlatform.douyin.jobId,retry.jobId);assert.equal(s.syncByPlatform.douyin.phase,'parse_error');assert(Number.isFinite(Date.parse(s.syncByPlatform.douyin.completedAt)));assert.equal(s.accounts.douyin.fans.value,4);
 });
+
+test('page batches persist before acknowledgement, survive pause, resume and become incremental',async t=>{
+ const app=await setup(t),browser=await pair(app);
+ await app.call('sync',{platform:'douyin'});let job=await jobFrom(browser);
+ assert.equal(job.collection.mode,'history');
+ const makeBatch=(start,count,status='running')=>({...raw,workCount:'500',works:Array.from({length:count},(_,i)=>({url:`https://www.douyin.com/video/${start+i}`,title:`作品 ${start+i}`})),collectionProgress:{mode:'history',status,reason:status==='complete'?'visible_end':'reading',checkpoint:status==='complete'?null:{page:Math.floor(start/100)+1},scanned:start+count}});
+ for(let sequence=0;sequence<3;sequence++){
+   const ack=await browser('/batch',{id:job.id,sequence,raw:makeBatch(sequence*100+1,100)});assert.equal(ack.ok,true);
+ }
+ assert.equal((await loadState(app.root)).accounts.douyin.works.length,300);
+ assert.equal((await app.call('sync/pause',{platform:'douyin'})).status,200);
+ assert((await browser('/batch',{id:job.id,sequence:3,raw:makeBatch(301,100)})).error);
+ await wait(app,s=>!s.sync.running);
+ assert.equal((await loadState(app.root)).accounts.douyin.works.length,300);
+ await app.call('sync',{platform:'douyin'});job=await jobFrom(browser);
+ assert(job.collection.checkpoint);assert.equal(job.collection.mode,'history');
+ await browser('/batch',{id:job.id,sequence:0,raw:makeBatch(301,20)});
+ await browser('/batch',{id:job.id,sequence:1,raw:makeBatch(321,0,'complete')});
+ await browser('/result',{id:job.id,status:'ok'});await wait(app,s=>!s.sync.running);
+ let state=(await app.call('state')).data;assert.equal(state.accounts.douyin.works.length,320);assert.equal(state.accounts.douyin.workLibrary.added,20);assert.equal(state.accounts.douyin.workSync.historyComplete,true);
+ await app.call('sync',{platform:'douyin'});job=await jobFrom(browser);assert.equal(job.collection.mode,'incremental');
+ const duplicate=await browser('/batch',{id:job.id,sequence:0,raw:makeBatch(10,2)});assert.equal(duplicate.known,true);
+ await browser('/result',{id:job.id,status:'needs_login'});state=await wait(app,s=>!s.sync.running);assert.equal(state.accounts.douyin.works.length,320);assert.equal(state.accounts.douyin.workSync.status,'paused');
+});
+
+test('batch rejects changed identity and unbind invalidates late writes',async t=>{
+ const app=await setup(t),browser=await pair(app);await app.call('sync',{platform:'douyin'});const job=await jobFrom(browser);
+ const base={...raw,workCount:'1',works:[{url:'https://www.douyin.com/video/1',title:'test'}]};
+ assert.equal((await browser('/batch',{id:job.id,sequence:0,raw:base})).ok,true);
+ const mismatch=await browser('/batch',{id:job.id,sequence:1,raw:{...base,accountId:'imposter'}});assert(mismatch.error);
+ assert.equal((await loadState(app.root)).accounts.douyin.accountId,'fixture-owner');
+ await app.call('unbind',{platform:'douyin',confirm:true});
+ assert((await browser('/batch',{id:job.id,sequence:1,raw:base})).error);
+ assert.equal((await loadState(app.root)).accounts.douyin,undefined);
+});

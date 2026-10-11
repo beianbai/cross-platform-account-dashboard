@@ -42,3 +42,27 @@ test('a stopped browser times out and frees the next task slot',async t=>{
  const {bridge}=await setup(t,{jobTimeout:20});await pair(bridge);const result=assert.rejects(bridge.run({platform:'douyin'}),/未及时完成/);await new Promise(r=>setTimeout(r,40));await result;
  const next=assert.rejects(bridge.run({platform:'bilibili'}),/退出/);await bridge.close();await next;
 });
+
+test('batch acknowledgements follow persistence, are idempotent and reject gaps and late batches',async t=>{
+ const {bridge}=await setup(t);const {port,token}=await pair(bridge);let writes=0;
+ const pending=bridge.run({platform:'douyin',collection:{mode:'history'},onBatch:async raw=>{writes++;return {known:false,count:raw.works.length};}});
+ const job=(await(await call(port,token,'/poll')).json()).job;
+ assert.equal(job.protocol,2);
+ const batch={id:job.id,sequence:0,raw:{works:[{url:'test'}]}};
+ assert.equal((await call(port,token,'/batch',{...batch,sequence:2})).status,409);
+ assert.equal((await call(port,token,'/batch',batch)).status,200);
+ assert.equal((await call(port,token,'/batch',batch)).status,200);assert.equal(writes,1);
+ await call(port,token,'/result',{id:job.id,status:'ok'});await pending;
+ assert.equal((await call(port,token,'/batch',{...batch,sequence:1})).status,409);
+});
+
+test('Ego batch credential is per-task, not an extension session, and expires when closed',async t=>{
+ const {bridge}=await setup(t);let saved=0;
+ const session=bridge.createLocalSession(async()=>{saved++;return {known:true};});
+ const send=(path,body,headers={})=>fetch(session.base+path,{method:'POST',headers:{Authorization:'Bearer '+session.token,'Content-Type':'application/json',...headers},body:JSON.stringify(body)});
+ const batch={id:session.id,sequence:0,raw:{works:[]}};
+ assert.equal((await send('/batch',batch,{Origin:origin})).status,401);
+ assert.equal((await send('/poll',{})).status,401);
+ assert.equal((await send('/batch',batch)).status,200);assert.equal(saved,1);
+ session.close();assert.equal((await send('/batch',{...batch,sequence:1})).status,401);
+});

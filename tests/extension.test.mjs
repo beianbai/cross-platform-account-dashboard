@@ -91,7 +91,7 @@ test('explicit page login or captcha gives a typed failure for any collector',as
 });
 
 async function sourceBundle(){
- const parts=await Promise.all(['../src/platforms.mjs','../src/collector.mjs','../extension/adapter.mjs','../extension/background.mjs'].map(path=>readFile(new URL(path,import.meta.url),'utf8')));
+ const parts=await Promise.all(['../src/platforms.mjs','../src/work-traversal.mjs','../src/collector.mjs','../extension/adapter.mjs','../extension/background.mjs'].map(path=>readFile(new URL(path,import.meta.url),'utf8')));
  return '(()=>{'+parts.map(s=>s.replace(/^import .*;\n/gm,'').replace(/^export /gm,'')).join('\n')+'})();';
 }
 async function runExtensionJob(job,{pending=false,retryable=false,active=false,failNavigation=false}={}){
@@ -137,4 +137,17 @@ test('manual resume preserves the user recovery tab after successful collection'
 test('extension attention is distinct from connection error in structured status',async()=>{
  const {state}=await runExtensionJob({id:'b'.repeat(64),platform:'douyin',url:'',automatic:true},{pending:true});
  assert.equal(state.activity.phase,'attention');assert.equal(state.lastResult.phase,'attention');
+});
+
+test('protocol 2 connector streams ordered batches, retries acknowledgement loss, and ends without full result payload',async()=>{
+ const bundle=(await sourceBundle()).replace('const raw=await collect({page,platform:job.platform','const raw=await fixtureCollect({page,platform:job.platform');
+ let listener,done;const ended=new Promise(r=>done=r),sequences=[];let first=true;
+ const state={connection:{base:'http://127.0.0.1:54321',token:'a'.repeat(64)}};
+ const api={runtime:{id:'fixture',onMessage:{addListener:f=>listener=f},onStartup:{addListener(){}},onInstalled:{addListener(){}}},alarms:{onAlarm:{addListener(){}}},storage:{local:{get:async()=>state,set:async v=>Object.assign(state,v)}},tabs:{create:async()=>({id:1}),remove:async()=>{}}};
+ vm.runInNewContext(bundle,{chrome:api,URL,AbortController,setTimeout,clearTimeout,
+  fixtureCollect:async({onBatch,collection})=>{assert.equal(collection.mode,'history');for(let i=0;i<3;i++){const ack=await onBatch({works:Array.from({length:100},(_,n)=>({url:`https://www.douyin.com/video/${i*100+n}`}))});assert.equal(ack.known,false);}return {works:[]};},
+  fetch:async(url,options)=>{const body=JSON.parse(options.body);if(url.endsWith('/poll'))return {ok:true,json:async()=>({job:{id:'b'.repeat(64),platform:'douyin',url:'',protocol:2,collection:{mode:'history'}}})};if(url.endsWith('/batch')){sequences.push(body.sequence);if(first){first=false;throw Error('ack lost');}return {ok:true,json:async()=>({ok:true,known:false})};}if(url.endsWith('/result')){done(body);return {ok:true,json:async()=>({ok:true})};}throw Error(url);}
+ });
+ listener({type:'poll'},{id:'fixture'},()=>{});const result=await ended;
+ assert.deepEqual(sequences,[0,0,1,2]);assert.equal(result.status,'ok');assert.equal(result.raw,undefined);
 });

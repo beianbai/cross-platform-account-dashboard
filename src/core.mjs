@@ -37,7 +37,29 @@ export function safeWorkURL(platform,value) {
     return u.href;
   }catch{return '';}
 }
-const WORK_LIMIT=200;
+// Legacy snapshots used a 200-item cap. New libraries have no lifetime count cap.
+export function normalizeProgress(progress) {
+  if(progress==null)return null;
+  if(!object(progress)||!['history','incremental'].includes(progress.mode)||!['running','paused','complete','incremental'].includes(progress.status)||!Number.isSafeInteger(progress.scanned)||progress.scanned<0)throw Error('作品采集进度无效');
+  const checkpoint=progress.checkpoint??null;
+  if(checkpoint!==null&&(!object(checkpoint)||JSON.stringify(checkpoint).length>4096))throw Error('作品检查点无效');
+  return {mode:progress.mode,status:progress.status,reason:String(progress.reason||'').slice(0,120),checkpoint:structuredClone(checkpoint),scanned:progress.scanned};
+}
+function mergeLibrary(previous,snapshot) {
+  const old=new Map((previous?.works||[]).map(w=>[w.id||new URL(w.url).pathname,w]));
+  const added=[],updated=[];
+  for(const work of snapshot.works){
+    const prior=old.get(work.id);
+    const next={...work,firstSeenAt:prior?.firstSeenAt||previous?.syncedAt||snapshot.syncedAt,lastSeenAt:snapshot.syncedAt};
+    if(prior){if(['url','title','cover','kind'].some(k=>prior[k]!==work[k]))updated.push(work.id);old.set(work.id,next);}
+    else{next.firstSeenAt=snapshot.syncedAt;added.push(next);}
+  }
+  const works=[...added,...old.values()];
+  const p=snapshot.collectionProgress;
+  const priorSync=previous?.workSync||{};
+  const workSync=p?{...priorSync,...p,historyComplete:p.mode==='history'?p.status==='complete':priorSync.historyComplete===true,historyCheckpoint:p.mode==='history'?p.checkpoint:priorSync.historyCheckpoint??null,...(p.mode==='history'&&p.status==='complete'?{historyCompletedAt:snapshot.syncedAt}:{} )}:{...priorSync,mode:'incremental',status:'paused',reason:'legacy_connector',historyComplete:priorSync.historyComplete===true,historyCheckpoint:priorSync.historyCheckpoint??null,scanned:snapshot.works.length,checkpoint:null};
+  return {works,workLibrary:{total:works.length,added:added.length,updated:updated.length},workSync};
+}
 export function normalizeSnapshot(platform,raw,expected='') {
   if(!raw||typeof raw!=='object')throw Error('平台没有返回可核验的个人主页');
   const url=profileURL(platform,raw.url);
@@ -48,7 +70,8 @@ export function normalizeSnapshot(platform,raw,expected='') {
   const fans=parseCount(raw.fans),following=parseCount(raw.following);
   if(!fans && !following)throw Error('粉丝与关注数据均未识别，请检查平台登录或页面结构');
   const seen=new Set(),works=[],receivedWorks=Array.isArray(raw.works)?raw.works:[];
-  for(const item of receivedWorks.slice(0,WORK_LIMIT)) {
+  for(const item of receivedWorks) {
+    if(!item||typeof item!=='object')continue;
     const link=safeWorkURL(platform,item.url);if(!link)continue;
     if(platform==='x'&&new URL(link).pathname.split('/')[1]!==new URL(url).pathname.slice(1))continue;
     const id=new URL(link).pathname;if(seen.has(id))continue;seen.add(id);
@@ -65,8 +88,9 @@ export function normalizeSnapshot(platform,raw,expected='') {
       return [key,{total:parseCount(item.total),loaded,status:status==='empty'&&loaded?'partial':status,...(reason?{reason}:{})}];
     }));
   }
-  const workCollection={limit:WORK_LIMIT,received:receivedWorks.length,retained:works.length,truncated:receivedWorks.length>WORK_LIMIT};
-  return {workCollection,...(coverage?{coverage}:{}),platform,url,name,avatar:safeMediaURL(raw.avatar),bio:String(raw.bio||'').slice(0,500),accountId:String(raw.accountId||'').slice(0,160),fans,following,likes:platform==='x'?null:parseCount(raw.likes),workCount:parseCount(raw.workCount),works,scope:String(raw.scope||'仅当前已加载的作品，不代表全部').slice(0,250),worksStatus:raw.worksStatus==='empty'?'empty':works.length?'partial':'unavailable',syncedAt:new Date().toISOString()};
+  const workCollection={limit:null,received:receivedWorks.length,retained:works.length,truncated:false};
+  const collectionProgress=normalizeProgress(raw.collectionProgress);
+  return {workCollection,...(collectionProgress?{collectionProgress}:{}),...(coverage?{coverage}:{}),platform,url,name,avatar:safeMediaURL(raw.avatar),bio:String(raw.bio||'').slice(0,500),accountId:String(raw.accountId||'').slice(0,160),fans,following,likes:platform==='x'?null:parseCount(raw.likes),workCount:parseCount(raw.workCount),works,scope:String(raw.scope||'仅当前已加载的作品，不代表全部').slice(0,250),worksStatus:raw.worksStatus==='empty'?'empty':works.length?'partial':'unavailable',syncedAt:new Date().toISOString()};
 }
 const METRICS=['fans','following','likes','workCount'];
 const systemTimeZone=()=>Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -106,16 +130,19 @@ function validateAccount(platform,record,version) {
   for(const key of METRICS)validateMetric(record[key]);
   if(record.workCollection!=null){
     const c=record.workCollection;
-    if(!object(c)||c.limit!==WORK_LIMIT||!Number.isSafeInteger(c.received)||c.received<0||c.retained!==record.works.length||c.retained>WORK_LIMIT||c.received<c.retained||typeof c.truncated!=='boolean'||c.truncated!==(c.received>WORK_LIMIT))throw Error('作品读取范围记录损坏，未覆盖');
+    const legacy=c.limit===200;
+    if(!object(c)||(!legacy&&c.limit!==null)||!Number.isSafeInteger(c.received)||c.received<0||!Number.isSafeInteger(c.retained)||c.retained<0||c.retained>record.works.length||(legacy&&c.retained>200)||c.received<c.retained||typeof c.truncated!=='boolean'||c.truncated!==(legacy&&c.received>200))throw Error('作品读取范围记录损坏，未覆盖');
   }
   if(record.coverage!=null){
     if(platform!=='bilibili'||!object(record.coverage))throw Error('作品分类记录损坏，未覆盖');
     for(const [key,item] of Object.entries(record.coverage)){
-      if(!['video','opus','audio'].includes(key)||!object(item)||!Number.isInteger(item.loaded)||item.loaded<0||item.loaded>200||!['empty','partial','unavailable'].includes(item.status))throw Error('作品分类记录损坏，未覆盖');
+      if(!['video','opus','audio'].includes(key)||!object(item)||!Number.isInteger(item.loaded)||item.loaded<0||!['empty','partial','unavailable','complete'].includes(item.status))throw Error('作品分类记录损坏，未覆盖');
       validateMetric(item.total);
       if(item.reason!=null&&!['network_error','parse_error','needs_login','needs_attention','account_mismatch'].includes(item.reason))throw Error('作品分类状态损坏，未覆盖');
     }
   }
+  if(record.workLibrary!=null&&(!object(record.workLibrary)||record.workLibrary.total!==record.works.length||!['added','updated'].every(k=>Number.isSafeInteger(record.workLibrary[k])&&record.workLibrary[k]>=0)))throw Error('作品库统计损坏，未覆盖');
+  if(record.workSync!=null){normalizeProgress(record.workSync);if(typeof record.workSync.historyComplete!=='boolean')throw Error('作品库范围损坏');}
   for(const sample of record.history)validateSample(sample);
   if(version===2) {
     if(!Array.isArray(record.daily))throw Error('每日历史损坏，未覆盖');
@@ -165,7 +192,9 @@ export function applySnapshot(input,platform,snapshot) {
   const sample={at:snapshot.syncedAt,...Object.fromEntries(METRICS.map(key=>[key,structuredClone(snapshot[key]??null)]))};
   const history=[...(previous?.history||[]),sample].slice(-90);
   const daily=mergeDaily(previous?.daily||[],dailyPoint(sample,platformSettings(state,platform).schedule.timeZone));
-  const account={...structuredClone(snapshot),platform,history,daily};
+  const account={...structuredClone(snapshot),...mergeLibrary(previous,snapshot),platform,history,daily};
+  delete account.collectionProgress;
+  if(account.coverage)for(const [key,kind] of Object.entries({video:'视频',opus:'图文',audio:'音频'}))if(account.coverage[key]){account.coverage[key].loaded=account.works.filter(w=>w.kind===kind).length;if(snapshot.collectionProgress?.mode==='history'&&snapshot.collectionProgress.status==='complete'){account.coverage[key].status=account.coverage[key].total?.value===0?'empty':'complete';delete account.coverage[key].reason;}else if(snapshot.collectionProgress?.mode==='incremental'&&previous?.coverage?.[key]?.status==='complete'&&account.coverage[key].status!=='unavailable')account.coverage[key].status='complete';}
   validateAccount(platform,account,2);
   return {...state,archives:state.archives.filter((_,index)=>index!==archiveIndex),accounts:{...state.accounts,[platform]:account}};
 }

@@ -46,7 +46,7 @@ window.__ModuleLoader__.load({
             hour12: false,
           })
         : "尚无记录";
-    const accountData = a => JSON.stringify([a?.name, a?.accountId, a?.avatar, a?.bio, a?.fans, a?.following, a?.workCount, a?.likes, a?.works, a?.coverage, a?.workCollection]);
+    const accountData = a => JSON.stringify([a?.name, a?.accountId, a?.avatar, a?.bio, a?.fans, a?.following, a?.workCount, a?.likes, a?.works, a?.coverage, a?.workCollection, a?.workLibrary, a?.workSync]);
     const metric = (v) =>
       v?.display ??
       (Number.isFinite(v?.value) ? v.value.toLocaleString("zh-CN") : "—");
@@ -1349,12 +1349,15 @@ window.__ModuleLoader__.load({
         [localSync, setLocalSync] = React.useState({}),
         [highlighted, setHighlighted] = React.useState({}),
         [workKind, setWorkKind] = React.useState("全部"),
+        [workPage, setWorkPage] = React.useState(1),
         [theme, setTheme] = React.useState(savedTheme),
         [platformErrors, setPlatformErrors] = React.useState({}),
         [operationError, setOperationError] = React.useState(null),
         [guideMode, setGuideMode] = React.useState(savedGuide);
       const alive = React.useRef(true),
         mainRef = React.useRef(null),
+        workGridRef = React.useRef(null),
+        pageNavigationRef = React.useRef(null),
         headerRef = React.useRef(null),
         scrollRef = React.useRef(0),
         detailPreferences = React.useRef({}),
@@ -1368,6 +1371,24 @@ window.__ModuleLoader__.load({
             if (element) element.inert = false;
         };
       }, [modal]);
+      React.useEffect(() => {
+        const navigation = pageNavigationRef.current;
+        if (!navigation) return;
+        pageNavigationRef.current = null;
+        const frame = requestAnimationFrame(() => {
+          const main = mainRef.current, grid = workGridRef.current;
+          if (!main || !grid) return;
+          // Move only the workbench's scroll container after the new page renders.
+          const top = main.scrollTop + grid.getBoundingClientRect().top - main.getBoundingClientRect().top - 16;
+          main.scrollTo({ top: Math.max(0, top), behavior: "auto" });
+          if (navigation.keyboard) grid.focus({ preventScroll: true });
+        });
+        return () => { if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame); };
+      }, [workPage]);
+      const changeWorkPage = (page, event) => {
+        pageNavigationRef.current = { keyboard: event?.detail === 0 };
+        setWorkPage(page);
+      };
       const platforms = (
           state?.platforms?.length ? state.platforms : fallback
         ).map((p) => ({
@@ -1409,8 +1430,14 @@ window.__ModuleLoader__.load({
                 const unchanged = request.data === accountData(s.accounts[id]);
                 const label = s.platforms?.find(p => p.id === id)?.label || id;
                 setPlatformErrors(old => { const next = { ...old }; delete next[id]; return next; });
-                setNotice(`${label}同步成功 · ${unchanged ? "数据无变化，已核对最新记录" : "最新记录已保存"}`);
+                const ws = s.accounts[id]?.workSync;
+                const result = ws?.status === "incremental" ? "增量扫描完成" : ws?.status === "complete" && ws?.historyComplete ? "历史已读到末尾" : "记录已保存，历史范围尚未确认";
+                setNotice(`${label}同步成功 · ${result} · ${unchanged ? "数据无变化，已核对最新记录" : "最新记录已保存"}`);
                 setHighlighted(old => ({ ...old, [id]: outcome.completedAt || outcome.jobId || Date.now() }));
+                delete manualJobs.current[id];
+              } else if (outcome.phase === "paused") {
+                const reason = s.accounts[id]?.workSync?.reason;
+                setNotice(`${s.platforms?.find(p => p.id === id)?.label || id}已暂停 · 已保存进度 · ${reason === "legacy_connector" ? "请更新浏览器连接器后继续" : reason === "needs_login" ? "请先在浏览器登录" : reason === "needs_attention" ? "请先在浏览器完成验证" : s.accounts[id]?.workSync?.mode === "incremental" ? "可继续增量同步" : "可继续补齐历史"}`);
                 delete manualJobs.current[id];
               } else if (outcome.error || ["needs_login", "needs_attention", "connection_offline", "parse_error", "account_mismatch", "network_error", "error"].includes(outcome.phase)) {
                 delete manualJobs.current[id];
@@ -1470,12 +1497,13 @@ window.__ModuleLoader__.load({
         return state.syncByPlatform?.[id] ||
           (state.sync?.platform === id ? state.sync : null);
       };
-      const sync = async (id, resume = false, path = "sync") => {
+      const sync = async (id, resume = false, path = "sync", options = {}) => {
         const a = state?.accounts[id];
         manualJobs.current[id] = { status: JSON.stringify(status(id)), data: accountData(a) };
         setLocalSync(old => ({ ...old, [id]: { phase: "queued", running: true } }));
         const result = await action(path, {
           platform: id,
+          ...(path === "sync" ? { mode: options.mode || (resume ? status(id)?.progress?.mode || a?.workSync?.mode : null) || (a?.workSync?.historyComplete ? "incremental" : "history"), ...(options.restart ? { restart: true } : {}) } : {}),
           ...(resume && status(id)?.url ? { url: status(id).url } : url && addPlatform === id ? { url } : {}),
           provider: resume && status(id)?.provider ? status(id).provider : provider,
           ...(resume ? { resume: true } : {}),
@@ -1483,7 +1511,7 @@ window.__ModuleLoader__.load({
         if (!result) { delete manualJobs.current[id]; setLocalSync(old => { const next = { ...old }; delete next[id]; return next; }); }
         return result;
       };
-      const phaseLabel = s => ({ queued: "排队中", waiting: "等待浏览器", opening: "等待浏览器", connecting: "等待浏览器", reading: "正在读取", collecting: "正在读取", needs_login: "需要登录", needs_attention: "等待处理", complete: "同步完成" }[s?.phase] || (s?.running ? "正在同步" : ""));
+      const phaseLabel = s => ({ queued: "排队中", waiting: "等待浏览器", opening: "等待浏览器", connecting: "等待浏览器", reading: "正在读取", collecting: "正在读取", needs_login: "需要登录", needs_attention: "等待处理", complete: "同步完成", paused: "已暂停 · 可继续" }[s?.phase] || (s?.running ? "正在同步" : ""));
       const btn = (text, onClick, icon, cls = "", disabled = false) =>
         h(
           "button",
@@ -1495,6 +1523,7 @@ window.__ModuleLoader__.load({
         scrollRef.current = mainRef.current?.scrollTop || 0;
         setSelected(id);
         setWorkKind("全部");
+        setWorkPage(1);
         setMetricKey(detailPreferences.current[id]?.metricKey || "fans");
         setDays(detailPreferences.current[id]?.days || 30);
         setView("detail");
@@ -1527,7 +1556,10 @@ window.__ModuleLoader__.load({
           ? state?.archives?.[Number(selected.slice(8))]
           : null,
         account = archived?.account || archived || state?.accounts[selected],
-        shownWorks = (account?.works || []).filter(w => workKind === "全部" || w.kind === workKind),
+        shownWorks = [...(account?.works || [])].sort((a, b) => String(b.firstSeenAt || "").localeCompare(String(a.firstSeenAt || ""))).filter(w => workKind === "全部" || w.kind === workKind),
+        pageCount = Math.max(1, Math.ceil(shownWorks.length / 24)),
+        currentPage = Math.min(workPage, pageCount),
+        pageWorks = shownWorks.slice((currentPage - 1) * 24, currentPage * 24),
         selectedSync = localSync[selected] || status(selected),
         selectedBusy = !!(selectedSync?.running || selectedSync?.phase === "queued"),
         platform = platforms.find(
@@ -1944,7 +1976,8 @@ window.__ModuleLoader__.load({
                             return h("div", { className: "psw-archive-row", key: a.id || i },
                               h(Logo, { id: platformId }),
                               h("div", { className: "psw-archive-info" }, h("strong", null, platforms.find(p => p.id === platformId)?.label || platformId || "未知平台"), h("span", null, record.name || "账号", record.accountId ? " · @" + String(record.accountId).replace(/^@/, "") : ""), h("small", null, "归档于 ", a.archivedAt ? date(a.archivedAt) : "时间未记录")),
-                              btn("查看历史", () => { setSelected("archive:" + i); setWorkKind("全部"); setView("detail"); }, "arrow", "psw-quiet"));
+                              btn("查看历史", () => { setSelected("archive:" + i); setWorkKind("全部");
+        setWorkPage(1); setView("detail"); }, "arrow", "psw-quiet"));
                           }),
                         ),
                       ),
@@ -2001,7 +2034,7 @@ window.__ModuleLoader__.load({
                           h("button", {
                             type: "button",
                             className: "psw-primary",
-                            onClick: () => sync(selected),
+                            onClick: () => sync(selected, account.workSync?.status === "paused" || selectedSync?.phase === "paused"),
                             disabled: pending || selectedBusy,
                             "aria-busy": selectedBusy,
                           },
@@ -2080,44 +2113,39 @@ window.__ModuleLoader__.load({
                         h(
                           "div",
                           { className: "psw-row" },
-                          h("h2", null, "当前作品快照"),
-                          h(
-                            "span",
-                            { className: "psw-count" },
-                            `本次保留 ${Number.isInteger(account.workCollection?.retained) ? account.workCollection.retained : (account.works || []).length} 条`,
+                          h("h2", null, "作品库"),
+                          h("span", { className: "psw-count" }, `累计保存 ${account.workLibrary?.total ?? (account.works || []).length} 条 · 此次新增 ${account.workLibrary?.added ?? 0} 条`),
+                        ),
+                        h("p", { className: "psw-snapshot-scope" },
+                          account.workSync?.historyComplete
+                            ? `历史曾确认读到末尾${account.workSync.historyCompletedAt ? " · " + date(account.workSync.historyCompletedAt) : ""}。`
+                            : account.workSync ? "历史尚未补齐，已保存的作品会持续累积。" : "旧记录已纳入作品库，历史范围尚未确认。",
+                        ),
+                        !archived && h("div", { className: "psw-note", role: "status", "aria-live": "polite" },
+                          h("p", null, account.workSync?.reason === "legacy_connector" || selectedSync?.reason === "legacy_connector" ? "请更新浏览器连接器后继续；已保存的作品仍保留，历史尚未补齐。" : selectedSync?.phase === "needs_login" || account.workSync?.reason === "needs_login" ? "请先在原浏览器登录，完成后继续；已保存的进度仍保留。" : selectedSync?.phase === "needs_attention" || account.workSync?.reason === "needs_attention" ? "请先在原浏览器完成验证或页面处理，再继续；已保存的进度仍保留。" : selectedBusy ? `${phaseLabel(selectedSync)} · 已保存 ${selectedSync?.progress?.saved ?? account.works?.length ?? 0} 条 · 已读取 ${selectedSync?.progress?.batches ?? 0} 批` : selectedSync?.error ? `同步未完成：${selectedSync.error} 已保存的作品和进度仍保留。` : account.workSync?.status === "paused" || selectedSync?.phase === "paused" ? account.workSync?.mode === "incremental" ? "已保存进度，等待继续增量同步。" : "已保存进度，等待继续补齐历史。" : account.workSync?.status === "incremental" ? "此次增量扫描已完成。" : account.workSync?.status === "complete" && account.workSync?.historyComplete ? "历史已读到末尾。" : "可继续补齐历史，或先更新近期作品。"),
+                          h("div", { className: "psw-actions", style: { flexWrap: "wrap" } },
+                            selectedBusy
+                              ? btn("暂停", () => action("sync/pause", { platform: selected }), null, "", pending)
+                              : h(React.Fragment, null,
+                                  btn("增量同步", () => sync(selected, account.workSync?.mode === "incremental" && (account.workSync?.status === "paused" || selectedSync?.phase === "paused"), "sync", { mode: "incremental" }), "refresh", "", pending),
+                                  btn(account.workSync?.historyCheckpoint || (account.workSync?.status === "paused" && account.workSync?.mode !== "incremental") ? "继续补齐" : "补齐历史", () => sync(selected, true, "sync", { mode: "history" }), null, "", pending),
+                                  btn("重新扫描", () => sync(selected, true, "sync", { mode: "history", restart: true }), null, "psw-quiet", pending),
+                                ),
                           ),
-                        ),
-                        h(
-                          "p",
-                          {
-                            className: "psw-muted",
-                            style: { fontSize: 12, marginTop: 7 },
-                          },
-                          "每次成功同步更新此列表，不是历史作品归档。",
-                        ),
-                        h(
-                          "p",
-                          { className: "psw-snapshot-scope", "data-truncated": account.workCollection?.truncated === true },
-                          account.workCollection?.truncated === true
-                            ? "本次达到 200 条上限，还有返回内容未保存"
-                            : account.workCollection?.truncated === false
-                              ? "仅本次页面已加载内容，未确认全量"
-                              : "旧记录未保存截断信息，下次同步后更新",
-                          h("span", null, account.coverage ? "视频、图文、音频合计最多保留 200 条。" : "每次同步最多保留 200 条。"),
                         ),
                         account.scope && h("details", { className: "psw-snapshot-details" }, h("summary", null, "查看平台采集范围"), h("p", { className: "psw-muted", style: { fontSize: 12 } }, account.scope)),
                         account.coverage && h("div", { className: "psw-coverage", "aria-label": "作品采集范围" },
                           [["video", "视频"], ["opus", "图文"], ["audio", "音频"]].map(([key, label]) => {
                             const item = account.coverage[key];
                             const reasons = { network_error: "网络未响应，可重新同步", parse_error: "未识别到本人内容", needs_login: "需要登录", needs_attention: "需要在浏览器处理", account_mismatch: "账号身份不符" };
-                            return h("div", { key }, h("strong", null, label), h("span", null, "平台总量 ", metric(item?.total)), h("span", null, "已读 ", item?.loaded || 0, " 条"), h("small", { className: item?.status === "unavailable" ? "psw-danger" : "psw-muted" }, item?.status === "empty" ? "平台确认暂无内容" : item?.status === "unavailable" ? reasons[item.reason] || "本次未能读取，可重新同步" : "仅当前页面已加载内容"));
+                            return h("div", { key }, h("strong", null, label), h("span", null, "平台总量 ", metric(item?.total)), h("span", null, "已读 ", item?.loaded || 0, " 条"), h("small", { className: item?.status === "unavailable" ? "psw-danger" : "psw-muted" }, item?.status === "empty" ? "平台确认暂无内容" : item?.status === "unavailable" ? reasons[item.reason] || "本次未能读取，可重新同步" : item?.status === "complete" ? "此分类已确认读到末尾" : "此分类历史范围尚未确认"));
                           })),
-                        account.coverage && h("div", { className: "psw-work-filters", "aria-label": "作品类型" }, ["全部", "视频", "图文", "音频"].map(kind => h("button", { key: kind, "aria-pressed": workKind === kind, onClick: () => setWorkKind(kind) }, kind))),
+                        account.coverage && h("div", { className: "psw-work-filters", "aria-label": "作品类型" }, ["全部", "视频", "图文", "音频"].map(kind => h("button", { key: kind, "aria-pressed": workKind === kind, onClick: () => { setWorkKind(kind); setWorkPage(1); } }, kind))),
                         shownWorks.length
                           ? h(
                               "div",
-                              { className: "psw-works" },
-                              shownWorks.map((w) =>
+                              { className: "psw-works", ref: workGridRef, tabIndex: -1, "aria-label": `作品库第 ${currentPage} 页` },
+                              pageWorks.map((w) =>
                                 h(
                                   "article",
                                   { className: "psw-work", key: w.id },
@@ -2171,8 +2199,13 @@ window.__ModuleLoader__.load({
                                 ? `当前记录没有已读取的${workKind}，请参考上方分类状态。`
                                 : account.worksStatus === "empty"
                                 ? "平台确认暂无作品。"
-                                : "本次未读取到作品，账号总作品数以平台资料为准。",
+                                : "作品库暂无已保存作品，账号总作品数以平台资料为准。",
                             ),
+                        shownWorks.length > 0 && h("nav", { className: "psw-row", "aria-label": "作品库分页", style: { marginTop: 20 } },
+                          btn("上一页", event => changeWorkPage(currentPage - 1, event), null, "", currentPage <= 1),
+                          h("span", { className: "psw-muted", "aria-live": "polite" }, `第 ${currentPage} / ${pageCount} 页 · ${shownWorks.length} 条`),
+                          btn("下一页", event => changeWorkPage(currentPage + 1, event), null, "", currentPage >= pageCount),
+                        ),
                       ),
                     )
                   : h(
