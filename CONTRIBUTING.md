@@ -16,4 +16,4 @@ pnpm start
 
 测试只能使用合成账号与临时目录。提交前检查暂存区，不能包含真实账号、授权、连接码、浏览器资料、日志或数据备份。不得通过采集绕过验证码、访问控制或平台限制。
 
-本项目采用 MIT；贡献提交按相同许可提供。目前没有配置公开远端；仓库实际公开后再通过该仓库的议题和拉取请求协作。
+本项目采用 MIT；贡献提交按相同许可提供。欢迎通过 [GitHub Issues](https://github.com/beianbai/cross-platform-account-dashboard/issues) 报告问题或建议，通过 [Pull Requests](https://github.com/beianbai/cross-platform-account-dashboard/pulls) 提交改进。

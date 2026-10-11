@@ -25,9 +25,11 @@ Run it on its own or inside DSH Desktop. Each platform currently holds one bound
 
 ### 1. Start the local dashboard
 
-You need **Node.js 22+** and a local copy of the project source. From the project root, run:
+You need **Node.js 22+**. Clone the source and enter the project directory:
 
 ```sh
+git clone https://github.com/beianbai/cross-platform-account-dashboard.git
+cd cross-platform-account-dashboard
 npm install
 npm start
 ```
@@ -98,4 +100,4 @@ pnpm pack
 - [Add a platform — 中文](docs/PLATFORM-DEVELOPMENT.md): “添加平台 → 自定义平台” (Add platform → Custom platform) generates a development prompt; it does not activate an unimplemented platform.
 - [Security — 中文](SECURITY.md) · [Changelog — 中文](CHANGELOG.md) · [MIT license](LICENSE).
 
-The package is currently private for local use, with no npm or marketplace release. The repository URL in `package.json` preserves the DSH installation identity and is not a public download address. See [identity migration before publication — 中文](docs/USAGE.md#开发与发布身份).
+The source is public on [GitHub](https://github.com/beianbai/cross-platform-account-dashboard), with no npm or marketplace release. `private: true` in `package.json` disables npm publication. Its legacy repository identifier is retained for compatibility with existing DSH installations; see [installation identity — 中文](docs/USAGE.md#开发与发布身份).

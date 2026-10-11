@@ -25,9 +25,11 @@
 
 ### 1. 启动本地看板
 
-准备 **Node.js 22+** 和项目源码。在项目根目录执行：
+准备 **Node.js 22+**，下载源码并进入项目目录：
 
 ```sh
+git clone https://github.com/beianbai/cross-platform-account-dashboard.git
+cd cross-platform-account-dashboard
 npm install
 npm start
 ```
@@ -98,4 +100,4 @@ pnpm pack
 - [扩展新平台](docs/PLATFORM-DEVELOPMENT.md)：「添加平台 → 自定义平台」只生成开发提示词，不会直接启用尚未实现的平台。
 - [安全说明](SECURITY.md) · [更新记录](CHANGELOG.md) · [MIT 许可](LICENSE)。
 
-当前包为本地使用的私有包，尚未发布 npm 或市场。`package.json` 中的仓库地址用于保留 DSH 安装身份，不是公开下载地址；发布前的身份迁移见[使用指南](docs/USAGE.md#开发与发布身份)。
+源码公开于 [GitHub](https://github.com/beianbai/cross-platform-account-dashboard)，尚未发布 npm 或市场。`package.json` 中的 `private: true` 用于禁用 npm 发布；其中的旧仓库标识仍用于兼容已有 DSH 安装，详情见[使用指南](docs/USAGE.md#开发与发布身份)。

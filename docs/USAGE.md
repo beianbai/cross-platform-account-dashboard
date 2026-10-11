@@ -112,6 +112,8 @@ plugin --profile web add "$PWD/dsh-workbench-personal-social-local-0.5.0.tgz" \
 
 「添加平台 → 自定义平台」会收集官方域名、主页、指标和登录要求，生成针对项目的开发提示词。它不会执行任意脚本或直接启用新平台；实现与测试方法见[平台开发指南](PLATFORM-DEVELOPMENT.md)。
 
-`package.json` 的 `repository` 是保留 DSH 安装身份的本地占位标识，不代表公开仓库。准备公开时先确定真实地址，并同时迁移工作台身份与已有会话归属，不能只改这个字段。本项目尚未配置 Git remote，也未发布 npm 或市场。
+公开源码仓库为 [https://github.com/beianbai/cross-platform-account-dashboard](https://github.com/beianbai/cross-platform-account-dashboard)，本地 Git 的 `origin` 指向该仓库。项目尚未发布 npm 或市场，`private: true` 只禁止 npm 发布，不代表 GitHub 仓库私有。
+
+`package.json` 与客户端注册中的旧 `repository` 标识用于兼容已有 DSH 安装，不是源码下载地址。本次仅公开源码，保留该运行时身份；将来若改为公开仓库标识，需要同时迁移工作台身份与已有会话归属，不能只改一个字段。
 
 账号数据、授权、备份和构建产物不进入版本历史。测试使用合成数据与临时目录，不操作真实账号。贡献前参阅[贡献指南](../CONTRIBUTING.md)、[安全说明](../SECURITY.md)及 [MIT 许可](../LICENSE)。
