@@ -9,7 +9,7 @@ const code = await readFile(
 const value = (n) => ({ value: n, display: String(n), approximate: false });
 const day = (n) =>
   new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
-function fixture({ paired = false, hidden = false, phase = null, syncFailure = false, syncGate = null } = {}) {
+function fixture({ paired = false, hidden = false, phase = null, syncFailure = false, syncGate = null, storedTheme = null, requestFailures = {} } = {}) {
   const account = {
     platform: "douyin",
     name: "林间的慢镜头",
@@ -97,6 +97,8 @@ function fixture({ paired = false, hidden = false, phase = null, syncFailure = f
   let current = "Panel",
     cursor = 0,
     Panel, poll;
+  let now = 0, timerId = 0, selection = "";
+  const timers = new Map(), effects = new Map(), queuedEffects = [], storage = new Map(storedTheme ? [["psw-theme", storedTheme]] : []), listeners = new Map();
   const React = {
     Fragment: "fragment",
     createElement: (type, props, ...children) => ({
@@ -118,15 +120,28 @@ function fixture({ paired = false, hidden = false, phase = null, syncFailure = f
     },
     useRef(initial) {
       const a = hooks.get(current) || [];
+      hooks.set(current, a);
       const i = cursor++;
       if (!(i in a)) a[i] = { current: initial };
       return a[i];
     },
     useCallback: (fn) => (poll = fn),
-    useEffect() {},
+    useEffect(fn, deps) {
+      if (!current.endsWith(":SuccessNotice") && !current.endsWith(":Select")) return;
+      const key = current + ":effect:" + cursor++, previous = effects.get(key);
+      if (!previous || deps.some((d, i) => d !== previous.deps[i])) {
+        queuedEffects.push(() => { previous?.cleanup?.(); effects.set(key, { deps, cleanup: fn() }); });
+      }
+    },
   };
   vm.runInNewContext(code, {
+    Date: class extends Date { static now() { return now; } },
+    setTimeout(fn, delay) { const id = ++timerId; timers.set(id, { fn, at: now + delay }); return id; },
+    clearTimeout(id) { timers.delete(id); },
     window: {
+      localStorage: { getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value) },
+      getSelection: () => ({ toString: () => selection }),
+      innerHeight: 800,
       __ModuleLoader__: {
         load(module) {
           module
@@ -144,12 +159,14 @@ function fixture({ paired = false, hidden = false, phase = null, syncFailure = f
       },
     },
     URL,
-    document: { baseURI: "http://localhost/" },
+    document: { baseURI: "http://localhost/", addEventListener: (name, fn) => listeners.set(name, fn), removeEventListener: (name) => listeners.delete(name) },
     requestAnimationFrame: (fn) => fn(),
     navigator: { clipboard: { writeText: async () => {} } },
     fetch: async (path, options) => {
       const body = options?.body ? JSON.parse(options.body) : null;
       calls.push({ path, body });
+      const failure = Object.entries(requestFailures).find(([endpoint]) => path.endsWith("/" + endpoint));
+      if (failure) return { ok: false, json: async () => ({ error: failure[1] }) };
       if (syncGate && path.endsWith("/sync")) await syncGate;
       if (syncFailure && path.endsWith("/sync")) return { ok: false, json: async () => ({ error: "浏览器连接已离线，请检查后重试。" }) };
       if (path.endsWith("/settings")) {
@@ -189,6 +206,18 @@ function fixture({ paired = false, hidden = false, phase = null, syncFailure = f
   }
   return {
     calls,
+    storage,
+    listeners,
+    selectText(value) { selection = value; },
+    advance(ms) {
+      const end = now + ms;
+      for (;;) {
+        const next = [...timers].filter(([, t]) => t.at <= end).sort((a,b) => a[1].at - b[1].at)[0];
+        if (!next) break;
+        now = next[1].at; timers.delete(next[0]); next[1].fn();
+      }
+      now = end;
+    },
     hooks,
     poll: () => poll(),
     get state() {
@@ -197,7 +226,9 @@ function fixture({ paired = false, hidden = false, phase = null, syncFailure = f
     render() {
       current = "Panel";
       cursor = 0;
-      return expand(Panel());
+      const tree = expand(Panel());
+      while (queuedEffects.length) queuedEffects.shift()();
+      return tree;
     },
   };
 }
@@ -522,6 +553,8 @@ test("sparse card history uses accumulation state without an isolated chart poin
   const tree = app.render();
   assert.match(text(tree), /已记录 1 天/);
   assert(!nodes(tree).some(n => n.props.className === "psw-spark"));
+  assert(!text(tree).includes("等待更多日记录"));
+  assert(!text(tree).includes("每日同步，逐步形成趋势"));
 });
 
 test("Bilibili coverage distinguishes platform totals from read works and filters content kinds", () => {
@@ -593,4 +626,177 @@ test("non-ready connection checks show actionable errors instead of green succes
   const dialog = nodes(app.render()).find(n => n.props.role === "dialog");
   assert(nodes(dialog).some(n => n.props.role === "alert" && text(n).includes("尚未检测到连接")));
   assert(!nodes(dialog).some(n => n.props.role === "status" && text(n).includes("尚未检测到连接")));
+});
+
+
+test("default Light and sun/moon preference persist across remounts", () => {
+  const app = fixture();
+  assert.equal(app.render().props["data-theme"], "light");
+  button(app.render(), "切换为深色").props.onClick();
+  assert.equal(app.render().props["data-theme"], "dark");
+  assert.equal(app.storage.get("psw-theme"), "dark");
+  const restored = fixture({ storedTheme: app.storage.get("psw-theme") });
+  assert.equal(restored.render().props["data-theme"], "dark");
+  button(restored.render(), "切换为浅色").props.onClick();
+  assert.equal(restored.storage.get("psw-theme"), "light");
+});
+test("account card routes from its body and keyboard while controls and selected text remain independent", async () => {
+  const app = fixture();
+  let card = nodes(app.render()).find(n => n.type === "article");
+  assert.equal(card.props.tabIndex, 0);
+  app.selectText("林间");
+  card.props.onClick({ target: { closest: () => null } });
+  assert(!text(app.render()).includes("粉丝趋势"));
+  app.selectText("");
+  card.props.onClick({ target: { closest: () => ({}) } });
+  assert(!text(app.render()).includes("粉丝趋势"));
+  card.props.onClick({ target: { closest: () => null } });
+  assert.match(text(app.render()), /粉丝趋势/);
+  button(app.render(), "全部账号").props.onClick();
+  card = nodes(app.render()).find(n => n.type === "article");
+  let stopped = false;
+  await button(card, "同步抖音").props.onClick({ stopPropagation() { stopped = true; } });
+  assert(stopped); assert(!text(app.render()).includes("粉丝趋势"));
+  card.props.onKeyDown({ key: "Enter", target: card, currentTarget: card, preventDefault() {} });
+  assert.match(text(app.render()), /粉丝趋势/);
+});
+test("success expires in four seconds and pointer/focus pauses are independent", async () => {
+  const app = fixture({ paired: true });
+  await button(app.render(), "同步抖音").props.onClick();
+  app.state.syncByPlatform.douyin = { phase: "complete", jobId: "notice-1", automatic: false };
+  await app.poll();
+  const notice = nodes(app.render()).find(n => n.props.className?.includes("psw-result"));
+  app.advance(1500);
+  notice.props.onPointerEnter();
+  notice.props.onFocus();
+  app.advance(10000); assert.match(text(app.render()), /抖音同步成功/);
+  notice.props.onPointerLeave();
+  app.advance(10000); assert.match(text(app.render()), /抖音同步成功/);
+  notice.props.onBlur({ currentTarget: { contains: () => false }, relatedTarget: null });
+  app.advance(2499); assert.match(text(app.render()), /抖音同步成功/);
+  app.advance(1); assert(!text(app.render()).includes("抖音同步成功"));
+});
+test("sync errors remain beside their account and disappear after successful retry", async () => {
+  const app = fixture({ paired: true });
+  await button(app.render(), "同步抖音").props.onClick();
+  app.state.syncByPlatform.douyin = { phase: "network_error", error: "暂时断网", jobId: "error-1" };
+  await app.poll();
+  let tree = app.render();
+  assert.match(text(nodes(tree).find(n => n.type === "article")), /暂时断网/);
+  app.advance(10000); assert.match(text(app.render()), /暂时断网/);
+  await button(tree, "重试").props.onClick();
+  app.state.syncByPlatform.douyin = { phase: "complete", jobId: "recovered-1", automatic: false };
+  await app.poll();
+  assert(!text(app.render()).includes("暂时断网"));
+});
+test("provider Select supports full keyboard navigation, Escape and outside dismissal", async () => {
+  const app = fixture(); button(app.render(), "设置").props.onClick();
+  const getSelect = () => nodes(app.render()).find(n => n.props.role === "combobox" && n.props["aria-label"] === "采集通路");
+  assert(!nodes(app.render()).some(n => n.type === "select"));
+  const key = async (name) => getSelect().props.onKeyDown({ key: name, preventDefault() {}, stopPropagation() {} });
+  await key("ArrowDown"); assert.equal(getSelect().props["aria-expanded"], true);
+  await key("End"); await key("Enter");
+  assert.equal(app.state.settings.provider, "ego");
+  assert.equal(getSelect().props["aria-expanded"], false);
+  await key("ArrowUp"); await key("Home"); await key("Enter");
+  assert.equal(app.state.settings.provider, "auto");
+  await key("ArrowDown"); await key("Escape");
+  assert.equal(getSelect().props["aria-expanded"], false);
+  getSelect().props.onClick(); app.render();
+  app.listeners.get("pointerdown")({ target: {} });
+  assert.equal(getSelect().props["aria-expanded"], false);
+});
+
+
+test("Select opens above near the container edge and keeps a bounded menu", () => {
+  const app = fixture(); button(app.render(), "设置").props.onClick();
+  let tree = app.render();
+  const root = nodes(tree).find(n => n.props.className === "psw-select");
+  root.props.ref.current = {
+    getBoundingClientRect: () => ({ top: 680, bottom: 724 }),
+    closest: () => ({ getBoundingClientRect: () => ({ top: 0, bottom: 740 }) }),
+    querySelector: () => null,
+  };
+  const control = nodes(root).find(n => n.props.role === "combobox");
+  control.props.onClick();
+  const menu = nodes(app.render()).find(n => n.props.role === "listbox" && n.props["aria-label"] === "采集通路");
+  assert.equal(menu.props.style.top, "auto");
+  assert.equal(menu.props.style.bottom, "calc(100% + 6px)");
+  assert(menu.props.style.maxHeight <= 264);
+});
+test("schedule choices share Select and save interval changes", async () => {
+  const app = fixture(); button(app.render(), "设置").props.onClick();
+  let control = nodes(app.render()).find(n => n.props.role === "combobox" && n.props["aria-label"] === "同步频率");
+  control.props.onClick();
+  await nodes(app.render()).find(n => n.props.role === "option" && text(n).includes("固定间隔")).props.onClick();
+  control = nodes(app.render()).find(n => n.props.role === "combobox" && n.props["aria-label"] === "间隔");
+  control.props.onClick();
+  await nodes(app.render()).find(n => n.props.role === "option" && text(n).includes("每 12 小时")).props.onClick();
+  await button(app.render(), "保存计划").props.onClick();
+  const schedule = app.calls.find(c => c.body?.schedule).body.schedule;
+  assert.equal(schedule.kind, "interval");
+  assert.equal(schedule.hours, 12);
+});
+test("a submission failure is attached to the bound card, with no global duplicate", async () => {
+  const app = fixture({ syncFailure: true });
+  await button(app.render(), "同步抖音").props.onClick();
+  const tree = app.render();
+  const card = nodes(tree).find(n => n.type === "article");
+  assert.match(text(card), /浏览器连接已离线/);
+  assert.equal((text(tree).match(/浏览器连接已离线/g) || []).length, 1);
+});
+
+
+test("failed unbind stays visible in its dialog with the original confirmation action", async () => {
+  const requestFailures = { unbind: "本地记录暂时无法写入" }, app = fixture({ requestFailures });
+  button(app.render(), "设置").props.onClick();
+  button(app.render(), "解除绑定").props.onClick();
+  await button(app.render(), "确认解除").props.onClick();
+  const dialog = nodes(app.render()).find(n => n.props.role === "dialog");
+  assert(dialog);
+  assert(nodes(dialog).some(n => n.props.role === "alert" && /解除绑定未完成.*本地记录暂时无法写入/.test(text(n))));
+  assert(!text(dialog).includes("同步未完成"));
+  assert(!button(dialog, "重试"));
+  assert(app.state.accounts.douyin);
+  delete requestFailures.unbind;
+  await button(dialog, "确认解除").props.onClick();
+  assert(!nodes(app.render()).some(n => n.props.role === "dialog"));
+  assert(!app.state.accounts.douyin);
+  assert(!text(app.render()).includes("本地记录暂时无法写入"));
+});
+test("failed schedule save describes settings, preserves draft, and retries the save", async () => {
+  const requestFailures = { settings: "暂时无法保存" }, app = fixture({ requestFailures });
+  button(app.render(), "设置").props.onClick();
+  field(app.render(), "自动同步").props.onChange({ target: { checked: true } });
+  await button(app.render(), "保存计划").props.onClick();
+  let tree = app.render();
+  const account = nodes(tree).find(n => n.props.className === "psw-platformsetting");
+  assert(nodes(account).some(n => n.props.role === "alert" && /设置未保存.*暂时无法保存/.test(text(n))));
+  assert(!text(account).includes("同步未完成"));
+  assert(!button(account, "重试"));
+  assert.equal(field(tree, "自动同步").props.checked, true);
+  assert.equal(button(tree, "保存计划").props.disabled, false);
+  delete requestFailures.settings;
+  await button(tree, "保存计划").props.onClick();
+  tree = app.render();
+  assert.equal(app.state.settings.platforms.douyin.schedule.enabled, true);
+  assert(!text(tree).includes("暂时无法保存"));
+});
+test("Select consumes Escape only while expanded so a collapsed control can dismiss its dialog", () => {
+  const app = fixture(); button(app.render(), "浏览器连接").props.onClick();
+  const getControl = () => nodes(app.render()).find(n => n.props.role === "combobox" && n.props["aria-label"] === "采集通路");
+  const escape = () => {
+    let stopped = false;
+    const event = { key: "Escape", preventDefault() {}, stopPropagation() { stopped = true; } };
+    getControl().props.onKeyDown(event);
+    const consumedBySelect = stopped;
+    if (!stopped) nodes(app.render()).find(n => n.props.role === "dialog").props.onKeyDown(event);
+    return consumedBySelect;
+  };
+  getControl().props.onClick();
+  assert.equal(escape(), true);
+  assert(nodes(app.render()).some(n => n.props.role === "dialog"));
+  assert.equal(getControl().props["aria-expanded"], false);
+  assert.equal(escape(), false);
+  assert(!nodes(app.render()).some(n => n.props.role === "dialog"));
 });

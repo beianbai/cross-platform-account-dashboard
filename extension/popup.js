@@ -2,6 +2,12 @@ const api=globalThis.browser||globalThis.chrome;
 const el=id=>document.getElementById(id);
 const status=el('status');
 let state={},reconnecting=false,pendingAction=null,awaitingPoll=false,lastResult=null;
+let theme='light',savingTheme=false;
+function applyTheme(value){
+ theme=value==='dark'?'dark':'light';document.documentElement.dataset.theme=theme;
+ const label=theme==='dark'?'切换到浅色模式':'切换到深色模式';
+ el('theme-toggle').setAttribute('aria-label',label);el('theme-toggle').setAttribute('title',label);
+}
 const phaseNames={idle:'等待任务',checking:'检查中',reading:'正在读取',submitted:'已提交',success:'读取完成',error:'未完成',attention:'需处理'};
 const phaseTones={idle:'neutral',checking:'pending',reading:'pending',submitted:'neutral',success:'success',error:'error',attention:'attention'};
 const buttonLabels={pair:'授权连接本机看板',poll:'检查待执行任务',disconnect:'断开连接'};
@@ -20,8 +26,8 @@ function render(){
  el('connected-panel').hidden=!paired;el('pair-panel').hidden=paired&&!reconnecting;el('cancel-pair').hidden=!paired;
  el('reconnect').setAttribute('aria-expanded',String(reconnecting));
  el('connection-state').textContent=paired?'已授权':'未连接';el('connection-state').dataset.tone=paired?'success':'neutral';
- el('connection-title').textContent=paired?(state.connection.label||'我的浏览器'):'连接你的浏览器';
- el('connection-detail').textContent=paired?'已保存本机授权；各平台的登录状态需在读取时检查。':'从看板生成连接码，即可授权此浏览器。';
+ el('connection-title').textContent=paired?(state.connection.label||'我的浏览器'):'连接浏览器';
+ el('connection-detail').textContent=paired?'读取时会检查各平台的登录状态。':'使用已登录账号，执行手动读取与自动同步。';
  el('task-state').textContent=phaseNames[current.phase];el('task-state').dataset.tone=phaseTones[current.phase];
  el('task-detail').textContent=current.phase==='idle'?'等待看板中的手动读取或自动同步任务。':current.message||phaseNames[current.phase];
  if(state.lastResult)lastResult=state.lastResult;
@@ -31,13 +37,13 @@ function render(){
  el('result-time').hidden=!validTime;
  el('result-time').textContent=validTime?date.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
  if(validTime)el('result-time').setAttribute('datetime',date.toISOString());
- for(const button of document.querySelectorAll('button'))button.disabled=Boolean(pendingAction);
+ for(const button of document.querySelectorAll('button'))button.disabled=button.id==='theme-toggle'?savingTheme:Boolean(pendingAction);
  for(const [id,label]of Object.entries(buttonLabels)){
   el(id).setAttribute('aria-busy',String(pendingAction===id));
   el(id==='poll'?'poll-label':id).textContent=pendingAction===id?pendingLabels[id]:label;
  }
 }
-async function refresh(){state=await api.storage.local.get(['connection','status','activity','lastResult']);render();}
+async function refresh(){state=await api.storage.local.get(['connection','status','activity','lastResult','popupTheme']);applyTheme(state.popupTheme);render();}
 function codeError(message){el('code-error').textContent=message;if(message){el('code').setAttribute('aria-invalid','true');el('code').focus();}else el('code').removeAttribute('aria-invalid');}
 async function send(message){
  if(pendingAction)return;
@@ -71,8 +77,16 @@ el('poll').addEventListener('click',()=>send({type:'poll'}));
 el('disconnect').addEventListener('click',()=>send({type:'disconnect'}));
 el('reconnect').addEventListener('click',()=>{reconnecting=true;render();el('code').focus();});
 el('cancel-pair').addEventListener('click',()=>{reconnecting=false;codeError('');render();el('reconnect').focus();});
+el('theme-toggle').addEventListener('click',async()=>{
+ if(savingTheme)return;
+ const previous=theme;applyTheme(theme==='light'?'dark':'light');savingTheme=true;render();
+ try{await api.storage.local.set({popupTheme:theme});}
+ catch{applyTheme(previous);notify('主题偏好未能保存，请重试。','error');}
+ finally{savingTheme=false;render();}
+});
 api.storage.onChanged.addListener((changes,area)=>{
  if(area!=='local')return;
+ if('popupTheme' in changes)applyTheme(changes.popupTheme.newValue);
  for(const key of ['connection','status','activity','lastResult'])if(key in changes)state[key]=changes[key].newValue;
  render();
  if(awaitingPoll&&(changes.activity||(!state.activity&&changes.status))){
@@ -81,4 +95,5 @@ api.storage.onChanged.addListener((changes,area)=>{
   if(!['checking','reading'].includes(current.phase))awaitingPoll=false;
  }
 });
+applyTheme('light');
 void refresh().catch(error=>notify(error?.message||'无法读取连接状态，请重新打开扩展。','error'));

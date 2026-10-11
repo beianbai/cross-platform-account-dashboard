@@ -19,3 +19,7 @@ coverage/
 **/sessions.json
 docs/LOCAL-TEST.md
 docs/superpowers/
+
+**/standalone-session.json
+**/.standalone.lock
+docs/development-reference.md

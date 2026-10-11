@@ -1,11 +1,11 @@
 {
   "name": "dsh-workbench-personal-social-local",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
-  "description": "把分散在多个平台的账号数据集中到一个看板，快速查看粉丝、关注、作品及每日变化。为各个平台单独设置自动同步，登录失效时及时提示，并保留历史记录，方便持续追踪账号表现。数据保存在本机，还可通过内置开发向导扩展更多平台。",
+  "description": "小红书、抖音、哔哩哔哩、X，一个看板查看账号与作品。支持定时同步、每日趋势和本地历史记录，可扩展更多平台。",
   "author": "本机用户",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/dsh-local-5bb86301/personal-social"
@@ -20,11 +20,21 @@
   "files": [
     "dsh",
     "lib",
-    "src/*.mjs",
     "cordis.patch.yml",
     "README.md",
     "docs/PLATFORM-DEVELOPMENT.md",
-    "LICENSE"
+    "LICENSE",
+    "standalone",
+    "CHANGELOG.md",
+    "src",
+    "assets",
+    "scripts/build.mjs",
+    "scripts/build-standalone.mjs",
+    "scripts/zip.mjs",
+    "extension",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "scripts/check-workbench-package.mjs"
   ],
   "dsh": {
     "bundle": {
@@ -39,11 +49,16 @@
   },
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "build": "node scripts/build.mjs",
-    "check": "node scripts/check-workbench-package.mjs"
+    "build": "node scripts/build.mjs && node scripts/build-standalone.mjs",
+    "check": "node scripts/check-workbench-package.mjs",
+    "build:standalone": "node scripts/build-standalone.mjs",
+    "prestart": "npm run build",
+    "start": "node standalone/server.mjs"
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "~3.18.4"
+    "@deepseek-ai/schemastery": "~3.18.4",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.4",
@@ -59,5 +74,9 @@
   },
   "engines": {
     "node": ">=22"
-  }
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12"
+  },
+  "packageManager": "pnpm@10.34.5"
 }

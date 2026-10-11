@@ -115,6 +115,105 @@ window.__ModuleLoader__.load({
             : `较 ${prev.date.slice(5).replace("-", "/")} 记录`,
       };
     }
+    const themeKey = "psw-theme";
+    function savedTheme() {
+      try { return window.localStorage.getItem(themeKey) === "dark" ? "dark" : "light"; }
+      catch { return "light"; }
+    }
+    function SuccessNotice({ message, onClose }) {
+      const clock = React.useRef({ remaining: 4000, started: 0, timer: null, reasons: new Set() });
+      const closeRef = React.useRef(onClose);
+      closeRef.current = onClose;
+      const [paused, setPaused] = React.useState(false);
+      const start = () => {
+        const c = clock.current;
+        c.started = Date.now();
+        c.timer = setTimeout(() => closeRef.current(), c.remaining);
+      };
+      React.useEffect(() => {
+        const c = clock.current;
+        c.remaining = 4000;
+        c.reasons.clear();
+        setPaused(false);
+        start();
+        return () => clearTimeout(c.timer);
+      }, [message]);
+      const pause = reason => {
+        const c = clock.current;
+        if (!c.reasons.size) {
+          clearTimeout(c.timer);
+          c.remaining = Math.max(0, c.remaining - (Date.now() - c.started));
+          setPaused(true);
+        }
+        c.reasons.add(reason);
+      };
+      const resume = reason => {
+        const c = clock.current;
+        if (!c.reasons.delete(reason) || c.reasons.size) return;
+        setPaused(false);
+        start();
+      };
+      return h("div", { className: "psw-feedback psw-result", role: "status", "aria-live": "polite",
+        style: { animationPlayState: paused ? "paused" : "running" },
+        onPointerEnter: () => pause("pointer"), onPointerLeave: () => resume("pointer"),
+        onFocus: () => pause("focus"), onBlur: e => { if (!e.currentTarget.contains(e.relatedTarget)) resume("focus"); } },
+        h(Icon, { name: "check", size: 17 }), h("span", null, message),
+        h("button", { type: "button", className: "psw-quiet psw-icon-button", "aria-label": "关闭通知", onClick: onClose }, h(Icon, { name: "close", size: 16 })));
+    }
+    let selectSerial = 0;
+    function Select({ value, onChange, disabled, children, "aria-label": label }) {
+      const options = children.filter(Boolean).map(child => ({ value: child.props.value, label: child.props.children }));
+      const selected = Math.max(0, options.findIndex(option => String(option.value) === String(value)));
+      const [open, setOpen] = React.useState(false), [active, setActive] = React.useState(selected),
+        [placement, setPlacement] = React.useState({}), [id] = React.useState(() => "psw-select-" + ++selectSerial);
+      const root = React.useRef(null), trigger = React.useRef(null);
+      const position = () => {
+        const element = root.current;
+        if (!element) return;
+        const box = element.getBoundingClientRect(), bounds = element.closest(".psw-dialog, .psw")?.getBoundingClientRect();
+        const bottom = Math.min(bounds?.bottom ?? window.innerHeight, window.innerHeight) - 12;
+        const top = Math.max(bounds?.top ?? 0, 0) + 12;
+        const below = bottom - box.bottom, above = box.top - top, upwards = below < 180 && above > below;
+        setPlacement({ top: upwards ? "auto" : "calc(100% + 6px)", bottom: upwards ? "calc(100% + 6px)" : "auto", maxHeight: Math.max(48, Math.min(264, (upwards ? above : below) - 6)) });
+      };
+      const show = index => { position(); setActive(index); setOpen(true); };
+      const choose = index => {
+        setOpen(false);
+        trigger.current?.focus();
+        return onChange({ target: { value: options[index].value } });
+      };
+      React.useEffect(() => {
+        if (!open) return;
+        const outside = event => { if (!root.current?.contains(event.target)) setOpen(false); };
+        document.addEventListener("pointerdown", outside, true);
+        return () => document.removeEventListener("pointerdown", outside, true);
+      }, [open]);
+      React.useEffect(() => {
+        if (open) root.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: "nearest" });
+      }, [active, open]);
+      const onKeyDown = event => {
+        const key = event.key;
+        if (key === "Escape" && !open) return;
+        if (["ArrowDown", "ArrowUp", "Home", "End", "Enter", " ", "Escape"].includes(key)) {
+          event.preventDefault(); event.stopPropagation();
+          if (key === "Escape") { setOpen(false); return; }
+          if (key === "Enter" || key === " ") return open ? choose(active) : show(selected);
+          const next = key === "Home" ? 0 : key === "End" ? options.length - 1 : !open ? selected : Math.max(0, Math.min(options.length - 1, active + (key === "ArrowDown" ? 1 : -1)));
+          show(next);
+        } else if (key === "Tab") setOpen(false);
+      };
+      return h("span", { className: "psw-select", ref: root, onBlur: e => { if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false); } },
+        h("button", { type: "button", className: "psw-select-trigger", role: "combobox", ref: trigger,
+          "aria-label": label, "aria-expanded": open, "aria-controls": id, "aria-haspopup": "listbox",
+          "aria-activedescendant": open ? id + "-" + active : undefined, disabled, onKeyDown,
+          onClick: () => open ? setOpen(false) : show(selected) },
+          h("span", null, options[selected]?.label), h(Icon, { name: "chevron", size: 16 })),
+        open && h("span", { className: "psw-select-options", id, role: "listbox", "aria-label": label, style: placement },
+          options.map((option, index) => h("button", { type: "button", id: id + "-" + index, key: option.value,
+            role: "option", tabIndex: -1, "aria-selected": selected === index, "data-active": active === index,
+            onPointerMove: () => setActive(index), onMouseDown: e => e.preventDefault(), onClick: () => choose(index) },
+            h("span", null, option.label), selected === index && h(Icon, { name: "check", size: 15 })))));
+    }
     function Icon({ name, size = 18, ...props }) {
       const paths = {
         plus: "M12 5v14M5 12h14",
@@ -125,6 +224,9 @@ window.__ModuleLoader__.load({
         refresh:
           "M20 7v5h-5M4 17v-5h5M6.1 6.1A8 8 0 0 1 19 8M18 18A8 8 0 0 1 5 16",
         close: "m6 6 12 12M18 6 6 18",
+        chevron: "m7 10 5 5 5-5",
+        sun: "M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5",
+        moon: "M20.5 13.4A8.8 8.8 0 0 1 10.6 3.5a9 9 0 1 0 9.9 9.9Z",
         settings: "M9 4h6l1 3 3 1 1 5-2 2v4l-5 1-2-2-4-1-2-5 2-2Z",
         check: "m5 12 4 4L19 6",
         clock: "M12 7v5l3 2",
@@ -150,11 +252,11 @@ window.__ModuleLoader__.load({
           "aria-hidden": true,
           ...props,
         },
-        ["clock", "settings", "eye"].includes(name) &&
+        ["clock", "settings", "eye", "sun"].includes(name) &&
           h("circle", {
             cx: 12,
             cy: 12,
-            r: name === "clock" ? 9 : name === "eye" ? 2.5 : 3,
+            r: name === "clock" ? 9 : name === "eye" ? 2.5 : name === "sun" ? 4 : 3,
           }),
         name === "browser" &&
           h("rect", { x: 2, y: 2, width: 20, height: 19, rx: 3 }),
@@ -162,11 +264,11 @@ window.__ModuleLoader__.load({
       );
     }
     function BrandMark() {
-      return h("svg", { viewBox: "0 0 40 40", width: 34, height: 34, fill: "none", stroke: "#79dfda", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
+      return h("svg", { viewBox: "0 0 40 40", width: 34, height: 34, fill: "none", stroke: "var(--accent)", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
         h("path", { d: "M5 10H9L15 16M4 20H15M5 30H9L15 24" }),
-        h("rect", { x: 15, y: 8, width: 21, height: 24, rx: 6, fill: "#1a2129" }),
+        h("rect", { x: 15, y: 8, width: 21, height: 24, rx: 6, fill: "var(--card)" }),
         h("path", { d: "M21 17H30M21 23H27" }),
-        [[5,10],[4,20],[5,30]].map(([cx,cy]) => h("circle", { key: cy, cx, cy, r: 2, fill: "#101419" })));
+        [[5,10],[4,20],[5,30]].map(([cx,cy]) => h("circle", { key: cy, cx, cy, r: 2, fill: "var(--paper)" })));
     }
     const localZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai";
     const cityZones = { "Asia/Shanghai": "北京 · 上海", "Asia/Hong_Kong": "香港", "Asia/Taipei": "台北", "Asia/Tokyo": "东京", "Asia/Seoul": "首尔", "Asia/Singapore": "新加坡", "Asia/Kolkata": "新德里", "Asia/Dubai": "迪拜", "Europe/London": "伦敦", "Europe/Paris": "巴黎", "Europe/Berlin": "柏林", "America/New_York": "纽约", "America/Los_Angeles": "洛杉矶", "America/Chicago": "芝加哥", "America/Toronto": "多伦多", "Australia/Sydney": "悉尼", "Pacific/Auckland": "奥克兰", "UTC": "协调世界时" };
@@ -231,7 +333,7 @@ window.__ModuleLoader__.load({
       );
     }
     const styles = `
-.psw{--ink:#edf2f6;--muted:#a1adb9;--line:#303c48;--paper:#101419;--card:#1a2129;--accent:#79dfda;--soft:#252f39;--green:#93dbb8;--danger:#ffb1a6;--ease:cubic-bezier(.2,.75,.25,1);color:var(--ink);background:var(--paper);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;height:100%;overflow:hidden;container-type:inline-size;text-align:left;color-scheme:dark;position:relative;isolation:isolate}
+.psw{--ink:#252832;--muted:#656b78;--line:#e5e7ed;--paper:#f5f6f8;--card:#fff;--accent:#4d6bfe;--soft:#eef1f7;--green:#23744f;--danger:#b43d42;--field:#fff;--hover-border:#b7c3e7;--accent-soft:#edf0ff;--accent-hover:#3d58dc;--success-bg:#edf7f1;--success-line:#c5e2d1;--warning-bg:#fff8ec;--warning-line:#ebd7ad;--warning-ink:#76531c;--error-bg:#fff0ef;--error-line:#f0cccc;--shadow:0 3px 15px #25345708;--ease:cubic-bezier(.2,.75,.25,1);color:var(--ink);background:var(--paper);font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;height:100%;overflow:hidden;container-type:inline-size;text-align:left;color-scheme:light;position:relative;isolation:isolate}
 .psw *{box-sizing:border-box}.psw button,.psw input,.psw select,.psw textarea{font:inherit}.psw button,.psw a,.psw input,.psw select,.psw textarea{touch-action:manipulation}.psw svg{flex-shrink:0}.psw h1,.psw h2,.psw h3,.psw p{margin:0}.psw h1{font-size:29px;line-height:1.25;letter-spacing:-.9px;font-weight:650}.psw h2{font-size:17px;font-weight:620;letter-spacing:-.3px}.psw h3{font-size:15px;font-weight:600}.psw small{font-size:12px}.psw a{color:var(--accent);text-decoration:none}.psw a:hover{text-decoration:underline}.psw .psw-muted{color:var(--muted)}
 .psw button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:9px 14px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink);cursor:pointer;white-space:nowrap;transition:background .16s,border-color .16s,transform .18s var(--ease),box-shadow .18s}.psw button:hover:not(:disabled){background:var(--soft);border-color:#516273}.psw button:active:not(:disabled){transform:scale(.975)}.psw button:disabled{opacity:.45;cursor:default}.psw button:focus-visible,.psw a:focus-visible,.psw input:focus-visible,.psw select:focus-visible,.psw textarea:focus-visible,.psw summary:focus-visible,.psw [tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:3px}.psw .psw-primary,.psw .psw-accent{background:var(--accent);border-color:var(--accent);color:#102526;font-weight:600;box-shadow:0 2px 12px #79dfda0c}.psw .psw-primary:hover:not(:disabled),.psw .psw-accent:hover:not(:disabled){background:#a3eee8;border-color:#a3eee8;box-shadow:0 3px 18px #79dfda20}.psw .psw-quiet{background:transparent;border-color:transparent}.psw .psw-icon-button{width:44px;padding:10px;flex-shrink:0}.psw .psw-danger{color:var(--danger)}
 .psw .psw-topbar{display:flex;align-items:center;gap:14px;padding:10px 26px 10px max(26px,var(--dsh-frame-leading-clearance,0px));min-height:66px;border-bottom:1px solid #8fbdcf23;flex-shrink:0;background:linear-gradient(110deg,#1d2830dc,#12181fe8);backdrop-filter:blur(18px);z-index:3}.psw .psw-brand{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:650;letter-spacing:.025em;white-space:nowrap}.psw .psw-mark{width:36px;height:36px;display:grid;place-items:center}.psw .psw-top-actions{margin-left:auto;display:flex;align-items:center;gap:8px}.psw .psw-connection{font-size:12px;gap:7px;min-height:44px;background:#1b252f80;border-color:#3d536260;color:var(--ink)}.psw .psw-settings-button{font-size:12px;color:var(--muted)}.psw .psw-dot{height:6px;width:6px;border-radius:50%;background:var(--muted);display:inline-block;flex-shrink:0}.psw .psw-dot.online{background:var(--accent);box-shadow:0 0 8px #79dfda44}
@@ -245,6 +347,15 @@ window.__ModuleLoader__.load({
 .psw .psw-settings{max-width:980px}.psw .psw-setting-block{border-top:1px solid var(--line);padding:24px 0}.psw .psw-setting-grid{display:grid;grid-template-columns:180px minmax(0,1fr);gap:28px}.psw .psw-setting-body{min-width:0}.psw .psw-setting-body>p{color:var(--muted);font-size:12px;margin:7px 0}.psw .psw-field{display:block;font-size:12px;font-weight:550;margin:15px 0 0;color:#cbd6df}.psw input:not([type=checkbox]),.psw select,.psw textarea{width:100%;border:1px solid #42505e;border-radius:8px;min-height:44px;background:#131b22;padding:10px 12px;color:var(--ink);margin-top:7px;min-width:0;transition:border-color .16s,box-shadow .16s}.psw input::placeholder,.psw textarea::placeholder{color:#8695a2}.psw input:hover:not(:disabled),.psw select:hover:not(:disabled),.psw textarea:hover{border-color:#69828f}.psw input[aria-invalid=true]{border-color:var(--danger)}.psw .psw-field-error{display:block;color:var(--danger);font-size:12px;font-weight:400;margin-top:6px}.psw textarea{resize:vertical;line-height:1.6}.psw .psw-formrow{display:grid;grid-template-columns:1fr 1fr;gap:14px}.psw .psw-check{display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;min-height:32px}.psw input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent);flex-shrink:0}.psw .psw-toggle-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0}.psw .psw-toggle-row+.psw-toggle-row{border-top:1px solid var(--line)}.psw .psw-schedule{margin:10px 0 18px;padding:0 18px 18px;border:1px solid var(--line);border-radius:10px;background:#121b22}.psw .psw-runtime{font-size:12px;display:grid;grid-template-columns:1fr 1fr;gap:12px;color:var(--muted);margin-top:16px}.psw .psw-runtime b{display:block;font-weight:450;color:var(--ink);margin-top:3px}.psw .psw-platformsetting{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:22px;margin-bottom:16px}.psw .psw-platformsetting .psw-card-top{margin-bottom:12px}.psw .psw-hidden{font-size:11px;background:var(--soft);color:var(--muted);padding:3px 8px;border-radius:4px}.psw .psw-timezone{position:relative}.psw .psw-zone-hint{display:flex;align-items:center;justify-content:space-between;gap:6px;color:var(--muted);font-size:11px;flex-wrap:wrap;margin-top:5px}.psw .psw-zone-hint button{font-size:11px;min-height:32px;padding:4px 6px;color:var(--accent)}.psw .psw-zone-options{position:absolute;top:72px;left:0;right:0;max-height:240px;overflow:auto;z-index:5;padding:6px;background:#202c36;border:1px solid #607786;border-radius:10px;box-shadow:0 15px 35px #0008}.psw .psw-zone-options button{width:100%;text-align:left;justify-content:flex-start;border:0;background:transparent;white-space:normal;font-size:12px;padding:10px;min-height:42px}.psw .psw-zone-options button[aria-selected=true]{background:#35565b;color:#ddfffb}.psw .psw-zone-options p{font-size:12px;padding:12px;color:var(--muted)}.psw .psw-archive-row{display:flex;align-items:center;gap:12px;padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--card);margin-bottom:10px}.psw .psw-archive-info{display:grid;gap:3px;flex:1;min-width:0}.psw .psw-archive-info strong{font-size:13px;font-weight:550}.psw .psw-archive-info span{font-size:12px;overflow-wrap:anywhere}.psw .psw-archive-info small{font-size:11px;color:var(--muted)}
 .psw .psw-dialog{color:var(--ink);width:min(620px,100%);max-height:100%;margin:auto;flex-shrink:0;padding:0;background:linear-gradient(150deg,#23303aea,#192129f5);backdrop-filter:blur(24px);border:1px solid #58707c80;border-radius:16px;box-shadow:0 25px 100px #0008,inset 0 1px #ffffff0a;overflow:auto;animation:psw-dialog .22s var(--ease)}.psw .psw-modal-overlay{position:absolute;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;padding:24px 16px;background:#050a10aa;backdrop-filter:blur(5px);overflow:hidden}.psw .psw-dialoghead{padding:18px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#202b35f2;backdrop-filter:blur(14px);z-index:6}.psw .psw-dialogbody{padding:22px 24px 26px}.psw .psw-dialogbody>p{color:var(--muted);font-size:13px;margin-bottom:18px}.psw .psw-options{display:grid;grid-template-columns:1fr 1fr;gap:12px}.psw .psw-option{padding:17px 15px;justify-content:flex-start;gap:12px;font-weight:550;min-height:72px;background:#19232c}.psw .psw-option .psw-muted{margin-left:auto;font-size:11px}.psw .psw-developer{display:flex;align-items:center;gap:12px;width:100%;margin-top:18px;text-align:left;border-top:1px solid var(--line);border-radius:0;padding-top:18px}.psw .psw-developer small{display:block;font-size:11px;color:var(--muted);font-weight:400;margin-top:3px;white-space:normal}.psw .psw-dialogfooter{display:flex;gap:10px;justify-content:flex-end;margin-top:24px;flex-wrap:wrap}.psw .psw-instructions{padding-left:20px;font-size:13px;color:var(--muted)}.psw .psw-instructions li{margin-bottom:12px}.psw .psw-pair{font-family:monospace!important;font-size:12px!important;word-break:break-all}.psw .psw-prompt{font-size:12px!important;min-height:235px}.psw .psw-loading{padding:70px 20px;text-align:center;color:var(--muted)}
 .psw .psw-spin{animation:psw-spin 1.2s linear infinite}@keyframes psw-spin{to{transform:rotate(360deg)}}@keyframes psw-scan{from{transform:translateX(-110%)}to{transform:translateX(330%)}}@keyframes psw-dialog{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}@keyframes psw-result{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}@keyframes psw-chart{from{opacity:.4}to{opacity:1}}@keyframes psw-complete{0%{border-color:#93dbb8;background:#93dbb814}100%{border-color:transparent;background:transparent}}
+
+.psw[data-theme=dark]{--ink:#edf0f6;--muted:#a3adbf;--line:#343b4b;--paper:#14171e;--card:#1e232e;--accent:#9baeff;--soft:#2b3240;--green:#93dbb8;--danger:#ffb1a6;--field:#191e28;--hover-border:#607194;--accent-soft:#2a3455;--accent-hover:#b0beff;--success-bg:#20372d;--success-line:#3f6855;--warning-bg:#332d23;--warning-line:#6b583b;--warning-ink:#ead3a9;--error-bg:#38282c;--error-line:#715056;--shadow:0 5px 20px #0002;color-scheme:dark}
+.psw .psw-topbar{background:var(--card);border-bottom:1px solid var(--line);backdrop-filter:none}.psw main{background:var(--paper)}.psw button:hover:not(:disabled){border-color:var(--hover-border)}.psw .psw-primary,.psw .psw-accent{color:#fff;box-shadow:0 3px 9px #4d6bfe18}.psw .psw-primary:hover:not(:disabled),.psw .psw-accent:hover:not(:disabled){background:var(--accent-hover);border-color:var(--accent-hover);box-shadow:0 4px 12px #4d6bfe25}.psw[data-theme=dark] .psw-primary,.psw[data-theme=dark] .psw-accent{color:#1b2544}.psw .psw-connection{background:transparent;border-color:transparent}.psw .psw-dot.online{box-shadow:0 0 0 3px var(--accent-soft)}
+.psw .psw-card{background:var(--card);border-color:var(--line);box-shadow:var(--shadow);cursor:pointer}.psw .psw-card:hover{border-color:var(--hover-border);box-shadow:0 8px 24px #25345710}.psw .psw-card.is-syncing{border-color:var(--accent)}.psw .is-syncing .psw-status{color:var(--accent);border-color:var(--hover-border);background:var(--accent-soft)}.psw .psw-avatar{background:var(--accent-soft);color:var(--accent);border-color:var(--line)}.psw .psw-accumulation{background-image:none;padding-right:2px}.psw .psw-accumulation strong,.psw .psw-accumulation svg{color:var(--muted)}.psw .psw-logo{background:#ffedf0;color:#bc2846;box-shadow:none}.psw .psw-douyin,.psw .psw-x{background:#222630;color:#fff}.psw .psw-bilibili{background:#e5f5fd;color:#16749b}.psw[data-theme=dark] .psw-logo{background:#59313a;color:#ffd0d4}.psw[data-theme=dark] .psw-douyin,.psw[data-theme=dark] .psw-x{background:#10171d;color:#eef4f9}.psw[data-theme=dark] .psw-bilibili{background:#183d50;color:#91d8ef}
+.psw .psw-notice{background:var(--warning-bg);border-color:var(--warning-line);color:var(--warning-ink)}.psw .psw-notice p{color:inherit}.psw .psw-notice.error{background:var(--error-bg);border-color:var(--error-line);color:var(--danger)}.psw .psw-platform-issue{cursor:default;align-items:flex-start;flex-wrap:wrap;font-size:12px;padding:12px;gap:10px}.psw .psw-platform-issue .psw-actions{margin-left:auto}.psw .psw-platform-issue button{font-size:12px;min-height:36px;padding:6px 10px}.psw .psw-empty{border-color:var(--hover-border);background:var(--card)}.psw .psw-result{background:var(--success-bg);border-color:var(--success-line);animation:psw-notice-expire 4s linear both}.psw .psw-result button{background:transparent}.psw .psw-metric-tabs button[aria-pressed=true]{background:var(--accent-soft)}.psw .psw-segment{background:var(--paper);border-color:var(--line)}.psw .psw-segment button[aria-pressed=true]{background:var(--card);box-shadow:var(--shadow)}.psw .psw-work-filters button[aria-pressed=true]{background:var(--accent-soft);border-color:var(--hover-border)}
+.psw .psw-field{color:var(--ink)}.psw input:not([type=checkbox]),.psw textarea{background:var(--field);border-color:var(--line)}.psw input::placeholder,.psw textarea::placeholder{color:var(--muted)}.psw input:hover:not(:disabled),.psw textarea:hover{border-color:var(--hover-border)}.psw input[aria-invalid=true]{border-color:var(--danger)}.psw .psw-schedule{background:var(--paper)}.psw .psw-zone-options{background:var(--card);border-color:var(--hover-border);box-shadow:0 12px 28px #17244820}.psw .psw-zone-options button[aria-selected=true]{background:var(--accent-soft);color:var(--accent)}.psw .psw-dialog{background:var(--card);border-color:var(--line);backdrop-filter:none;box-shadow:0 24px 80px #1c29463d}.psw .psw-dialoghead{background:var(--card);backdrop-filter:none}.psw .psw-modal-overlay{background:#26345155;backdrop-filter:blur(4px)}.psw[data-theme=dark] .psw-modal-overlay{background:#050a10aa}.psw .psw-option{background:var(--field)}
+.psw .psw-theme-toggle{position:relative;width:38px;height:38px;min-height:38px;padding:0;border-radius:50%;background:var(--paper);border-color:var(--line);overflow:hidden}.psw .psw-theme-toggle svg{position:absolute;transition:transform .32s var(--ease),opacity .2s;color:var(--muted)}.psw .psw-theme-sun{opacity:1;transform:rotate(0) scale(1)}.psw .psw-theme-moon{opacity:0;transform:rotate(-70deg) scale(.5)}.psw[data-theme=dark] .psw-theme-sun{opacity:0;transform:rotate(70deg) scale(.5)}.psw[data-theme=dark] .psw-theme-moon{opacity:1;transform:rotate(0) scale(1);color:var(--accent)}.psw .psw-theme-toggle:hover{background:var(--accent-soft)}
+.psw .psw-select{position:relative;display:block;min-width:0;margin-top:7px}.psw .psw-select-trigger{display:flex;width:100%;justify-content:space-between;min-height:44px;text-align:left;background:var(--field);padding:10px 12px;border-color:var(--line);font-size:13px;font-weight:400;white-space:normal}.psw .psw-select-trigger>span{min-width:0;overflow-wrap:anywhere}.psw .psw-select-trigger[aria-expanded=true]{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}.psw .psw-select-trigger>svg{color:var(--muted);transition:transform .18s var(--ease)}.psw .psw-select-trigger[aria-expanded=true]>svg{transform:rotate(180deg)}.psw .psw-select-options{position:absolute;left:0;right:0;display:block;z-index:8;padding:5px;overflow:auto;overscroll-behavior:contain;background:var(--card);border:1px solid var(--hover-border);border-radius:10px;box-shadow:0 12px 28px #17244820}.psw .psw-select-options button{width:100%;justify-content:space-between;text-align:left;font-size:13px;font-weight:400;white-space:normal;padding:10px;border:0;border-radius:6px;background:transparent}.psw .psw-select-options button[data-active=true]{background:var(--soft)}.psw .psw-select-options button[aria-selected=true]{color:var(--accent);background:var(--accent-soft)}
+@keyframes psw-notice-expire{0%{opacity:0;transform:translateY(-4px)}5%,94%{opacity:1;transform:none}100%{opacity:0;transform:translateY(-3px)}}
 @container(min-width:1120px){.psw .psw-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.psw .psw-card{padding:19px}.psw .psw-big{font-size:36px}.psw .psw-cardfooter{flex-wrap:wrap}.psw .psw-cardfooter>.psw-actions{margin-left:auto}}
 @container(max-width:740px){.psw main{padding:24px 22px 36px}.psw .psw-grid{grid-template-columns:1fr}.psw .psw-setting-grid{grid-template-columns:1fr;gap:15px}.psw .psw-metric-tabs button{padding:16px}.psw .psw-metric-tabs b{font-size:21px}.psw .psw-works{grid-template-columns:repeat(2,minmax(0,1fr))}.psw .psw-topbar{padding-left:max(18px,var(--dsh-frame-leading-clearance,0px));padding-right:18px;gap:8px}.psw .psw-brand{font-size:14px}.psw .psw-top-actions{gap:4px}.psw .psw-top-actions button{padding:8px 9px}}
 @container(max-width:520px){.psw .psw-topbar{flex-wrap:wrap;padding-top:8px;padding-bottom:8px;gap:4px}.psw .psw-brand{font-size:14px;width:100%}.psw .psw-mark{width:30px;height:30px}.psw .psw-mark svg{width:30px;height:30px}.psw .psw-top-actions{margin-left:0;width:100%;justify-content:flex-end}.psw .psw-top-actions button{min-height:38px}.psw main{padding:22px 16px 32px}.psw h1{font-size:25px}.psw .psw-heading{gap:9px}.psw .psw-pagehead{gap:10px;margin-bottom:20px}.psw .psw-pagehead button{padding:9px 11px;font-size:12px}.psw .psw-count{font-size:11px}.psw .psw-card{padding:18px}.psw .psw-cardfooter{flex-wrap:wrap;gap:6px}.psw .psw-cardfooter>.psw-actions{margin-left:auto}.psw .psw-notice{align-items:flex-start;flex-direction:column;gap:12px}.psw .psw-detail-head{align-items:flex-start;flex-direction:column;gap:14px}.psw .psw-metric-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}.psw .psw-metric-tabs button{min-height:82px}.psw .psw-metric-tabs button:nth-child(-n+2){border-bottom:1px solid var(--line)}.psw .psw-chart-panel{padding:18px 14px}.psw .psw-chart-panel>.psw-row{align-items:flex-start;gap:12px;flex-direction:column}.psw .psw-chart{height:220px}.psw .psw-coverage{grid-template-columns:1fr}.psw .psw-coverage>div{grid-template-columns:1fr 1fr;gap:6px 12px}.psw .psw-coverage small{grid-column:1/-1}.psw .psw-works{gap:13px}.psw .psw-cover{height:130px}.psw .psw-formrow,.psw .psw-runtime{grid-template-columns:1fr}.psw .psw-options{grid-template-columns:1fr}.psw .psw-dialogbody{padding:18px}.psw .psw-dialoghead{padding:13px 18px}.psw .psw-platformsetting{padding:17px}.psw .psw-schedule{padding:0 12px 15px}.psw .psw-archive-row{padding:12px;gap:9px;flex-wrap:wrap}.psw .psw-archive-row>button{margin-left:auto}.psw .psw-modal-overlay{padding:12px}.psw .psw-zone-options{max-height:200px}}
@@ -295,7 +406,7 @@ window.__ModuleLoader__.load({
             `${d.estimated ? "约 " : ""}${d.value >= 0 ? "+" : ""}${d.value.toLocaleString("zh-CN")}`,
             h("small", null, d.label, d.estimated ? " · 估算" : ""),
           )
-        : h("span", { className: "psw-delta psw-muted" }, "等待更多日记录");
+        : null;
     }
     function Chart({
       account,
@@ -440,7 +551,7 @@ window.__ModuleLoader__.load({
             ),
           ),
       );
-      if (mini && valid.length < 2) return h("div", { className: "psw-accumulation" }, h(Icon, { name: "clock", size: 18 }), h("strong", null, `已记录 ${valid.length} 天`), h("span", null, "每日同步，逐步形成趋势"));
+      if (mini && valid.length < 2) return h("div", { className: "psw-accumulation" }, h(Icon, { name: "clock", size: 18 }), h("strong", null, `已记录 ${valid.length} 天`));
       if (mini)
         return h(
           "div",
@@ -789,6 +900,7 @@ window.__ModuleLoader__.load({
       pending,
       onUnbind,
       mayOpenWindow,
+      issueContent,
     }) {
       const defaults = {
           enabled: false,
@@ -859,6 +971,7 @@ window.__ModuleLoader__.load({
           ),
           h(Icon, { name: "clock", size: 16 }),
         ),
+        issueContent,
         mayOpenWindow &&
           h(
             "p",
@@ -875,12 +988,13 @@ window.__ModuleLoader__.load({
             "div",
             { className: "psw-formrow" },
             h(
-              "label",
+              "div",
               { className: "psw-field" },
               "同步频率",
               h(
-                "select",
+                Select,
                 {
+                  "aria-label": "同步频率",
                   value: draft.kind,
                   disabled: pending,
                   onChange: (e) => update({ kind: e.target.value }),
@@ -903,12 +1017,13 @@ window.__ModuleLoader__.load({
                   }),
                 )
               : h(
-                  "label",
+                  "div",
                   { className: "psw-field" },
                   "间隔",
                   h(
-                    "select",
+                    Select,
                     {
+                      "aria-label": "间隔",
                       value: draft.hours,
                       disabled: pending,
                       onChange: (e) =>
@@ -1184,7 +1299,10 @@ window.__ModuleLoader__.load({
         [notice, setNotice] = React.useState(""),
         [localSync, setLocalSync] = React.useState({}),
         [highlighted, setHighlighted] = React.useState({}),
-        [workKind, setWorkKind] = React.useState("全部");
+        [workKind, setWorkKind] = React.useState("全部"),
+        [theme, setTheme] = React.useState(savedTheme),
+        [platformErrors, setPlatformErrors] = React.useState({}),
+        [operationError, setOperationError] = React.useState(null);
       const alive = React.useRef(true),
         mainRef = React.useRef(null),
         headerRef = React.useRef(null),
@@ -1239,6 +1357,7 @@ window.__ModuleLoader__.load({
               if (outcome.phase === "complete" && outcome.automatic !== true) {
                 const unchanged = request.data === accountData(s.accounts[id]);
                 const label = s.platforms?.find(p => p.id === id)?.label || id;
+                setPlatformErrors(old => { const next = { ...old }; delete next[id]; return next; });
                 setNotice(`${label}同步成功 · ${unchanged ? "数据无变化，已核对最新记录" : "最新记录已保存"}`);
                 setHighlighted(old => ({ ...old, [id]: outcome.completedAt || outcome.jobId || Date.now() }));
                 delete manualJobs.current[id];
@@ -1263,16 +1382,22 @@ window.__ModuleLoader__.load({
       }, [load]);
       async function action(path, body, { close = false, message = "" } = {}) {
         setPending(true);
+        setOperationError(null);
         setError("");
         setNotice("");
         try {
           const result = await api(path, body);
           await load();
+          if (body?.platform && path === "unbind") setPlatformErrors(old => { const next = { ...old }; delete next[body.platform]; return next; });
           if (close) setModal(null);
           if (message) setNotice(message);
           return result || true;
         } catch (e) {
-          setError(e.message);
+          if (body?.platform && ["sync", "login"].includes(path)) {
+            setPlatformErrors(old => ({ ...old, [body.platform]: e.message }));
+          } else if (body?.platform && ["settings", "unbind"].includes(path)) {
+            setOperationError({ path, platform: body.platform, message: (path === "unbind" ? "解除绑定未完成：" : "设置未保存：") + e.message });
+          } else setError((path === "settings" ? "设置未保存：" : "") + e.message);
           return false;
         } finally {
           setPending(false);
@@ -1356,7 +1481,7 @@ window.__ModuleLoader__.load({
           (p) => p.id === (account?.platform || selected),
         ),
         issues = platforms
-          .map((p) => ({ p, s: status(p.id) }))
+          .map((p) => ({ p, s: platformErrors[p.id] ? { ...status(p.id), phase: "error", error: platformErrors[p.id] } : status(p.id) }))
           .filter(
             ({ s }) =>
               s &&
@@ -1375,7 +1500,7 @@ window.__ModuleLoader__.load({
           attention = s.phase === "needs_attention";
         return h(
           "div",
-          { className: "psw-notice", key: p.id, role: "status" },
+          { className: "psw-notice psw-platform-issue", key: p.id, role: "status", onClick: e => e.stopPropagation() },
           h(
             "div",
             null,
@@ -1420,7 +1545,16 @@ window.__ModuleLoader__.load({
           s = localSync[p.id] || status(p.id);
         return h(
           "article",
-          { className: "psw-card" + (s?.running || s?.phase === "queued" ? " is-syncing" : ""), key: p.id, "aria-label": p.label + "账号", "aria-busy": !!s?.running },
+          { className: "psw-card" + (s?.running || s?.phase === "queued" ? " is-syncing" : ""), key: p.id, "aria-label": p.label + "账号", "aria-busy": !!s?.running, tabIndex: 0, "aria-keyshortcuts": "Enter Space", "aria-description": "按 Enter 或空格查看账号详情",
+            onClick: event => {
+              if (event.target.closest("button, a, input, select, textarea, [role=option]")) return;
+              if (window.getSelection?.().toString()) return;
+              goDetail(p.id);
+            },
+            onKeyDown: event => {
+              if (event.target !== event.currentTarget || !["Enter", " "].includes(event.key)) return;
+              event.preventDefault(); goDetail(p.id);
+            } },
           highlighted[p.id] && h("div", { key: highlighted[p.id], className: "psw-sync-flash", "aria-hidden": true, onAnimationEnd: () => setHighlighted(old => { const next = { ...old }; delete next[p.id]; return next; }) }),
           h(
             "div",
@@ -1495,6 +1629,7 @@ window.__ModuleLoader__.load({
               ),
             ),
           ),
+          issues.filter(item => item.p.id === p.id).map(issue),
           h(
             "div",
             { className: "psw-cardfooter" },
@@ -1509,7 +1644,7 @@ window.__ModuleLoader__.load({
                   type: "button",
                   className: "psw-icon-button psw-quiet",
                   "aria-label": "同步" + p.label,
-                  onClick: () => sync(p.id),
+                  onClick: event => { event?.stopPropagation(); return sync(p.id); },
                   disabled: pending || s?.running,
                 },
                 h(Icon, { name: "refresh", size: 16 }),
@@ -1520,7 +1655,7 @@ window.__ModuleLoader__.load({
       }
       return h(
         "section",
-        { className: "psw", "aria-label": "跨平台账号看板" },
+        { className: "psw", "data-theme": theme, "aria-label": "跨平台账号看板" },
         h(
           "header",
           { className: "psw-topbar", ref: headerRef },
@@ -1537,6 +1672,9 @@ window.__ModuleLoader__.load({
           h(
             "div",
             { className: "psw-top-actions" },
+            h("button", { type: "button", className: "psw-theme-toggle psw-icon-button", "aria-label": theme === "light" ? "切换为深色" : "切换为浅色", title: theme === "light" ? "切换为深色" : "切换为浅色",
+              onClick: () => { const next = theme === "light" ? "dark" : "light"; setTheme(next); try { window.localStorage.setItem(themeKey, next); } catch {} } },
+              h(Icon, { name: "sun", size: 19, className: "psw-theme-sun" }), h(Icon, { name: "moon", size: 19, className: "psw-theme-moon" })),
             h(
               "button",
               {
@@ -1585,14 +1723,7 @@ window.__ModuleLoader__.load({
                   "refresh",
                 ),
               ),
-            notice &&
-              h(
-                "div",
-                { className: "psw-feedback psw-result", role: "status", "aria-live": "polite" },
-                h(Icon, { name: "check", size: 17 }),
-                h("span", null, notice),
-                h("button", { className: "psw-quiet psw-icon-button", "aria-label": "关闭通知", onClick: () => setNotice("") }, h(Icon, { name: "close", size: 16 })),
-              ),
+            notice && !modal && h(SuccessNotice, { key: notice, message: notice, onClose: () => setNotice("") }),
             !state
               ? h(
                   "div",
@@ -1617,12 +1748,13 @@ window.__ModuleLoader__.load({
                         "div",
                         { className: "psw-setting-body" },
                         h(
-                          "label",
+                          "div",
                           { className: "psw-field", style: { marginTop: 0 } },
                           "采集通路",
                           h(
-                            "select",
+                            Select,
                             {
+                              "aria-label": "采集通路",
                               value: provider,
                               disabled: pending,
                               onChange: (e) =>
@@ -1687,8 +1819,13 @@ window.__ModuleLoader__.load({
                                 account: state.accounts[p.id],
                                 pending,
                                 mayOpenWindow,
+                                issueContent: h(React.Fragment, null,
+                                  issues.filter(item => item.p.id === p.id).map(issue),
+                                  operationError?.path === "settings" && operationError.platform === p.id &&
+                                    h("div", { className: "psw-notice error", role: "alert" }, operationError.message)),
                                 onSave: (body) => action("settings", body, { message: "visible" in body ? (body.visible ? "已在首页展示" : "已从首页隐藏，自动同步计划不变") : "" }),
                                 onUnbind: (id) => {
+                                  setOperationError(null);
                                   setSelected(id);
                                   setModal("unbind");
                                 },
@@ -1968,7 +2105,7 @@ window.__ModuleLoader__.load({
                           "psw-primary",
                         ),
                       ),
-                      issues.map(issue),
+                      issues.filter(item => !visible.some(p => p.id === item.p.id)).map(issue),
                       platforms
                         .filter(
                           (p) =>
@@ -2123,12 +2260,16 @@ window.__ModuleLoader__.load({
                         : "浏览器连接",
               onClose: () => {
                 setModal(null);
+                setOperationError(null);
                 setPair(null);
               },
             },
             error &&
               h("div", { className: "psw-notice error", role: "alert" }, error),
-            notice && h("p", { className: "psw-feedback", role: "status" }, notice),
+            notice && h(SuccessNotice, { key: notice, message: notice, onClose: () => setNotice("") }),
+            modal === "unbind" && operationError?.path === "unbind" && operationError.platform === selected &&
+              h("div", { className: "psw-notice error", role: "alert" }, operationError.message),
+            modal === "add" && issues.filter(item => item.p.id === addPlatform).map(issue),
             issues.length > 0 && modal === "connection" && issues.map(issue),
             modal === "add"
               ? addPlatform
@@ -2306,12 +2447,13 @@ window.__ModuleLoader__.load({
                         React.Fragment,
                         null,
                         h(
-                          "label",
+                          "div",
                           { className: "psw-field", style: { marginTop: 0 } },
                           "采集通路",
                           h(
-                            "select",
+                            Select,
                             {
+                              "aria-label": "采集通路",
                               value: provider,
                               disabled: pending,
                               onChange: (e) =>
@@ -2480,7 +2622,8 @@ window.__ModuleLoader__.load({
           {
             title: "跨平台账号看板",
             repository: "https://github.com/dsh-local-5bb86301/personal-social",
-            description: "把分散在多个平台的账号数据集中到一个看板，快速查看粉丝、关注、作品及每日变化。为各个平台单独设置自动同步，登录失效时及时提示，并保留历史记录，方便持续追踪账号表现。数据保存在本机，还可通过内置开发向导扩展更多平台。",
+            description: "小红书、抖音、哔哩哔哩、X，一个看板查看账号与作品。支持定时同步、每日趋势和本地历史记录，可扩展更多平台。",
+            screenshot: "__WORKBENCH_COVER__",
             icon: "◈",
             customFrame: true,
           },

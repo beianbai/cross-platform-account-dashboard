@@ -11,12 +11,47 @@ async function popup(initial={},handler=async()=>({ok:true})){
  function element(id){if(!nodes.has(id))nodes.set(id,{id,textContent:'',value:id==='label'?'我的浏览器':'',hidden:false,disabled:false,dataset:{},attributes:{},listeners:{},setAttribute(name,value){this.attributes[name]=String(value);},removeAttribute(name){delete this.attributes[name];},addEventListener(name,fn){this.listeners[name]=fn;},focus(){if(!this.disabled)this.focused=true;}});return nodes.get(id);}
  for(const id of ['pair','poll','disconnect','reconnect','cancel-pair','pair-form','pair-panel','connected-panel','status','code','code-error','label','connection-state','connection-title','connection-detail','task-state','task-detail','result-text','result-time'])element(id);
  const state={...initial},messages=[];let onChanged;
- const document={getElementById:element,querySelectorAll:selector=>selector==='button'?['pair','poll','disconnect','reconnect','cancel-pair'].map(element):[]};
- const api={storage:{local:{get:async()=>({...state})},onChanged:{addListener(fn){onChanged=fn;}}},runtime:{async sendMessage(message){messages.push(message);return handler(message,state);}}};
+ const document={documentElement:element('html'),getElementById:element,querySelectorAll:selector=>selector==='button'?['pair','poll','disconnect','reconnect','cancel-pair','theme-toggle'].map(element):[]};
+ const api={storage:{local:{get:async keys=>Object.fromEntries(keys.filter(key=>key in state).map(key=>[key,state[key]])),set:async values=>{Object.assign(state,values);}},onChanged:{addListener(fn){onChanged=fn;}}},runtime:{async sendMessage(message){messages.push(message);return handler(message,state);}}};
  vm.runInNewContext(source,{chrome:api,document,URL,Date,console});await tick();
  return {nodes,state,messages,async event(id,type='click'){const result=element(id).listeners[type]?.({preventDefault(){}});await tick();return result;},change(values){const changes={};for(const [key,newValue]of Object.entries(values)){changes[key]={oldValue:state[key],newValue};state[key]=newValue;}onChanged(changes,'local');},node:element};
 }
 const connection={base:'http://127.0.0.1:54321',token:'a'.repeat(64),label:'日常浏览器'};
+
+test('theme defaults to light and persists a toggle without replacing saved connection data',async()=>{
+ const ui=await popup({connection,activity:{phase:'reading',message:'正在读取抖音'}});
+ assert.equal(ui.node('html').dataset.theme,'light');
+ assert.equal(ui.node('theme-toggle').attributes['aria-label'],'切换到深色模式');
+ await ui.event('theme-toggle');
+ assert.equal(ui.node('html').dataset.theme,'dark');
+ assert.deepEqual(ui.state.connection,connection);assert.equal(ui.state.activity.phase,'reading');assert.equal(ui.messages.length,0);
+ const reopened=await popup(ui.state);
+ assert.equal(reopened.node('html').dataset.theme,'dark');
+ assert.equal(reopened.node('theme-toggle').attributes['aria-label'],'切换到浅色模式');
+ await reopened.event('theme-toggle');
+ assert.equal((await popup(reopened.state)).node('html').dataset.theme,'light');
+});
+
+test('theme preference changes preserve a pending poll and submitted result semantics',async()=>{
+ let resolve;const ui=await popup({connection},()=>new Promise(done=>{resolve=done;}));
+ const pending=ui.event('poll');await tick();
+ assert.equal(ui.node('theme-toggle').disabled,false);
+ ui.change({popupTheme:'dark'});
+ assert.equal(ui.node('html').dataset.theme,'dark');assert.equal(ui.node('status').dataset.tone,'pending');
+ assert.equal(ui.node('pair-panel').hidden,true);assert.equal(ui.node('poll').disabled,true);
+ ui.change({activity:{phase:'submitted',message:'已提交读取结果，请回看板查看保存结果。'}});
+ resolve({accepted:true});await pending;
+ assert.equal(ui.node('task-state').textContent,'已提交');assert.equal(ui.node('status').dataset.tone,'neutral');
+ assert.equal(ui.node('html').dataset.theme,'dark');
+});
+
+test('unknown or removed theme preference falls back to light without changing connection',async()=>{
+ const ui=await popup({connection,popupTheme:'unsupported'});
+ assert.equal(ui.node('html').dataset.theme,'light');
+ ui.change({popupTheme:'dark'});assert.equal(ui.node('html').dataset.theme,'dark');
+ ui.change({popupTheme:undefined});assert.equal(ui.node('html').dataset.theme,'light');
+ assert.equal(ui.node('pair-panel').hidden,true);
+});
 
 test('paired popup hides pairing until explicit reconnect and distinguishes platform login',async()=>{
  const ui=await popup({connection,status:'连接成功。现在可回工作台读取账号。'});

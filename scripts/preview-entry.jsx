@@ -3,6 +3,8 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 document.title = "跨平台账号看板 · UI QA";
 const params = new URLSearchParams(location.search);
+// An explicit preview theme keeps screenshot capture reproducible without changing production defaults.
+if (["light", "dark"].includes(params.get("theme"))) localStorage.setItem("psw-theme", params.get("theme"));
 const platforms = [
   {
     id: "xiaohongshu",

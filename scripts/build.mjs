@@ -1,6 +1,8 @@
 import {mkdir,readFile,writeFile} from 'node:fs/promises';
 import vm from 'node:vm';
-const source=await readFile(new URL('../src/client.js',import.meta.url),'utf8');
+const cover=await readFile(new URL('../assets/cover.png',import.meta.url));
+if(cover.subarray(0,8).toString('hex')!=='89504e470d0a1a0a')throw Error('封面必须是有效 PNG');
+const source=(await readFile(new URL('../src/client.js',import.meta.url),'utf8')).replace('__WORKBENCH_COVER__','data:image/png;base64,'+cover.toString('base64'));
 new vm.Script(source,{filename:'client.js'});
 if(!source.includes('window.__ModuleLoader__.load('))throw Error('缺少客户端加载器注册');
 await mkdir(new URL('../lib/',import.meta.url),{recursive:true});
