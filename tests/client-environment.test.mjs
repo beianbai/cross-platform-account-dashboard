@@ -9,7 +9,7 @@ const code = await readFile(
 const value = (n) => ({ value: n, display: String(n), approximate: false });
 const day = (n) =>
   new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
-function fixture({ paired = false, hidden = false, phase = null, syncFailure = false, syncGate = null, storedTheme = null, requestFailures = {} } = {}) {
+function fixture({ paired = false, hidden = false, phase = null, syncFailure = false, syncGate = null, storedTheme = null, requestFailures = {}, empty = false, storedGuide = null, storageUnavailable = false, initialLoading = false } = {}) {
   const account = {
     platform: "douyin",
     name: "林间的慢镜头",
@@ -43,7 +43,7 @@ function fixture({ paired = false, hidden = false, phase = null, syncFailure = f
   };
   let state = {
     version: 2,
-    accounts: { douyin: account },
+    accounts: empty ? {} : { douyin: account },
     archives: [],
     platforms: [
       {
@@ -92,13 +92,14 @@ function fixture({ paired = false, hidden = false, phase = null, syncFailure = f
       label: "Chrome",
     },
   };
-  const hooks = new Map([["Panel", [state]]]),
+  const hooks = new Map([["Panel", [initialLoading ? null : state]]]),
     calls = [];
   let current = "Panel",
     cursor = 0,
     Panel, poll;
   let now = 0, timerId = 0, selection = "";
   const timers = new Map(), effects = new Map(), queuedEffects = [], storage = new Map(storedTheme ? [["psw-theme", storedTheme]] : []), listeners = new Map();
+  if (storedGuide !== null) storage.set("psw-onboarding-v1", storedGuide);
   const React = {
     Fragment: "fragment",
     createElement: (type, props, ...children) => ({
@@ -139,7 +140,7 @@ function fixture({ paired = false, hidden = false, phase = null, syncFailure = f
     setTimeout(fn, delay) { const id = ++timerId; timers.set(id, { fn, at: now + delay }); return id; },
     clearTimeout(id) { timers.delete(id); },
     window: {
-      localStorage: { getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value) },
+      localStorage: { getItem: key => { if (storageUnavailable) throw Error("storage unavailable"); return storage.get(key); }, setItem: (key, value) => { if (storageUnavailable) throw Error("storage unavailable"); storage.set(key, value); } },
       getSelection: () => ({ toString: () => selection }),
       innerHeight: 800,
       __ModuleLoader__: {
@@ -799,4 +800,190 @@ test("Select consumes Escape only while expanded so a collapsed control can dism
   assert.equal(getControl().props["aria-expanded"], false);
   assert.equal(escape(), false);
   assert(!nodes(app.render()).some(n => n.props.role === "dialog"));
+});
+
+const guide = tree => nodes(tree).find(n => n.props.className === "psw-onboarding");
+const guideStep = (tree, index) => nodes(guide(tree)).find(n => n.props["data-step"] === index);
+test("first-run guide follows connection, selection and persisted success rather than button clicks", async () => {
+  const app = fixture({ empty: true });
+  let tree = app.render();
+  assert(guide(tree));
+  assert.equal(guideStep(tree, 0).props["aria-current"], "step");
+  button(guide(tree), "连接浏览器").props.onClick();
+  await button(app.render(), "生成连接码").props.onClick();
+  assert.equal(guideStep(app.render(), 0).props["data-complete"], false);
+  button(app.render(), "关闭").props.onClick();
+  app.state.browserConnection.paired = true;
+  app.state.browserConnection.online = true;
+  tree = app.render();
+  assert.equal(guideStep(tree, 1).props["aria-current"], "step");
+  button(guide(tree), "添加一个平台").props.onClick();
+  button(app.render(), "抖音").props.onClick();
+  await button(app.render(), "读取并绑定").props.onClick();
+  tree = app.render();
+  assert.equal(guideStep(tree, 1).props["data-complete"], false);
+  assert.match(text(guideStep(tree, 1)), /已选择，待绑定/);
+  assert.equal(guideStep(tree, 2).props["aria-current"], "step");
+  assert.equal(guideStep(tree, 2).props["data-complete"], false);
+  assert.equal(app.calls.filter(c => c.path.endsWith("/sync")).length, 1);
+  app.state.syncByPlatform.douyin = { phase: "complete" };
+  assert.equal(guideStep(app.render(), 2).props["data-complete"], false);
+  app.state.accounts.douyin = { platform: "douyin", name: "新账号", works: [], syncedAt: new Date().toISOString() };
+  tree = app.render();
+  assert.equal(guideStep(tree, 2).props["data-complete"], true);
+  assert.equal(guideStep(tree, 3).props["aria-current"], "step");
+  assert.match(text(guide(tree)), /点击账号卡片查看详情/);
+  button(guide(tree), "设置自动同步").props.onClick();
+  assert.match(text(app.render()), /工作台运行且电脑唤醒时执行/);
+});
+test("existing accounts keep guide closed and home or settings can reopen it", () => {
+  const app = fixture();
+  assert(!guide(app.render()));
+  button(app.render(), "上手指南").props.onClick();
+  assert(guide(app.render()));
+  button(app.render(), "收起指南").props.onClick();
+  assert(!guide(app.render()));
+  button(app.render(), "设置").props.onClick();
+  button(app.render(), "上手指南").props.onClick();
+  assert(guide(app.render()));
+  assert.match(text(app.render()), /我的账号/);
+});
+test("skip and collapse persist only a versioned preference and reopening remains available", () => {
+  const app = fixture({ empty: true });
+  button(app.render(), "跳过指南").props.onClick();
+  assert(!guide(app.render()));
+  const saved = app.storage.get("psw-onboarding-v1");
+  assert.deepEqual(JSON.parse(saved), { version: 1, mode: "skipped" });
+  const restored = fixture({ empty: true, storedGuide: saved });
+  assert(!guide(restored.render()));
+  button(restored.render(), "上手指南").props.onClick();
+  assert(guide(restored.render()));
+  assert.equal(guideStep(restored.render(), 0).props["data-complete"], false);
+  button(restored.render(), "收起指南").props.onClick();
+  assert.equal(JSON.parse(restored.storage.get("psw-onboarding-v1")).mode, "collapsed");
+});
+test("missing, malformed and inaccessible storage never blocks first-run guide", () => {
+  for (const options of [{}, { storedGuide: "broken" }, { storedGuide: '{"version":99,"mode":"skipped"}' }, { storageUnavailable: true }]) {
+    const app = fixture({ empty: true, ...options });
+    assert(guide(app.render()));
+    button(app.render(), "跳过指南").props.onClick();
+    assert(!guide(app.render()));
+    button(app.render(), "上手指南").props.onClick();
+    assert(guide(app.render()));
+  }
+});
+test("guide recognizes a ready adapter and respects the selected provider", () => {
+  const app = fixture({ empty: true });
+  app.state.environment.status = "ready";
+  assert.equal(guideStep(app.render(), 0).props["data-complete"], true);
+  app.state.settings.provider = "browser";
+  assert.equal(guideStep(app.render(), 0).props["data-complete"], false);
+});
+test("work snapshot distinguishes truncation, retained count, uncapped page and legacy uncertainty", () => {
+  for (const [collection, expected] of [
+    [{ limit: 200, received: 205, retained: 200, truncated: true }, "本次达到 200 条上限，还有返回内容未保存"],
+    [{ limit: 200, received: 1, retained: 1, truncated: false }, "仅本次页面已加载内容，未确认全量"],
+    [undefined, "旧记录未保存截断信息，下次同步后更新"],
+  ]) {
+    const app = fixture();
+    Object.assign(app.state.accounts.douyin, { workCollection: collection, workCount: value(collection?.retained || 1), works: [{ id: "one", title: "作品", url: "https://example.test/one" }] });
+    button(app.render(), "查看详情").props.onClick();
+    const content = text(app.render());
+    assert.match(content, /当前作品快照/);
+    assert(content.includes(`本次保留 ${collection?.retained || 1} 条`));
+    assert(content.includes(expected));
+    assert.match(content, /每次同步最多保留 200 条/);
+    assert.match(content, /查看平台采集范围当前个人主页作品/);
+    assert.match(content, /不是历史作品归档/);
+    assert(!content.includes("已保存全部作品"));
+  }
+});
+test("zero retained works remains unknown unless platform confirms empty", () => {
+  const app = fixture();
+  app.state.accounts.douyin.workCollection = { limit: 200, received: 0, retained: 0, truncated: false };
+  button(app.render(), "查看详情").props.onClick();
+  assert.match(text(app.render()), /本次保留 0 条/);
+  assert.match(text(app.render()), /本次未读取到作品/);
+  app.state.accounts.douyin.worksStatus = "empty";
+  assert.match(text(app.render()), /平台确认暂无作品/);
+});
+
+test("guide resumes login in the original browser and only marks scheduling from saved settings", async () => {
+  const app = fixture({ empty: true, paired: true, phase: "needs_login" });
+  app.state.settings.provider = "ego";
+  app.state.environment.status = "ready";
+  await button(guide(app.render()), "前往浏览器处理").props.onClick();
+  const request = app.calls.find(c => c.path.endsWith("/login"));
+  assert.equal(request.body.provider, "browser");
+  assert.equal(request.body.url, "https://www.douyin.com/user/lin_film");
+  assert.equal(guideStep(app.render(), 2).props["data-complete"], false);
+  const existing = fixture({ paired: true });
+  button(existing.render(), "上手指南").props.onClick();
+  button(guide(existing.render()), "设置自动同步").props.onClick();
+  field(existing.render(), "自动同步").props.onChange({ target: { checked: true } });
+  button(existing.render(), "上手指南").props.onClick();
+  assert.equal(guideStep(existing.render(), 3).props["data-complete"], false);
+  existing.state.settings.platforms.douyin.schedule.enabled = true;
+  assert.equal(guideStep(existing.render(), 3).props["data-complete"], true);
+});
+test("Bilibili snapshot cap is shared across content kinds and filters retain snapshot count", () => {
+  const app = fixture();
+  Object.assign(app.state.accounts.douyin, {
+    works: [{ id: "video", kind: "视频", title: "视频作品" }, { id: "opus", kind: "图文", title: "图文作品" }],
+    workCollection: { limit: 200, received: 250, retained: 200, truncated: true },
+    coverage: { video: { total: value(200), loaded: 199 }, opus: { total: value(50), loaded: 1 }, audio: { total: null, loaded: 0, status: "unavailable" } },
+  });
+  button(app.render(), "查看详情").props.onClick();
+  assert.match(text(app.render()), /视频、图文、音频合计最多保留 200 条/);
+  button(app.render(), "图文").props.onClick();
+  assert.match(text(app.render()), /本次保留 200 条/);
+  assert(!text(app.render()).includes("视频作品"));
+  assert.match(text(app.render()), /平台总量 —/);
+});
+
+test("real service idle entries do not imply platform selection", () => {
+  const app = fixture({ empty: true, paired: true });
+  app.state.syncByPlatform = Object.fromEntries(app.state.platforms.map(p => [p.id, { platform: p.id, phase: "idle", running: false }]));
+  const tree = app.render();
+  assert.equal(guideStep(tree, 1).props["aria-current"], "step");
+  assert.equal(guideStep(tree, 1).props["data-complete"], false);
+  assert.match(text(guideStep(tree, 1)), /待选择/);
+  assert(button(guide(tree), "添加一个平台"));
+  assert(!text(guide(tree)).includes("继续首次同步"));
+});
+
+test("first render with no server state shows loading before onboarding can derive progress", async () => {
+  const app = fixture({ empty: true, initialLoading: true });
+  const tree = app.render();
+  assert.match(text(tree), /正在读取本地账号/);
+  assert(!guide(tree));
+  await app.poll();
+  assert(guide(app.render()));
+  assert.equal(guideStep(app.render(), 0).props["aria-current"], "step");
+});
+
+test("selected platform with only an idle record reopens its form before first sync", async () => {
+  const app = fixture({ empty: true, paired: true });
+  app.state.syncByPlatform = Object.fromEntries(app.state.platforms.map(p => [p.id, { platform: p.id, phase: "idle", running: false }]));
+  button(guide(app.render()), "添加一个平台").props.onClick();
+  button(app.render(), "X").props.onClick();
+  button(app.render(), "关闭").props.onClick();
+  await button(guide(app.render()), "继续首次同步").props.onClick();
+  assert(nodes(app.render()).some(n => n.props.role === "dialog"));
+  assert(field(app.render(), "个人主页链接（可选）"));
+  assert.equal(app.calls.filter(c => c.path.endsWith("/sync")).length, 0);
+});
+test("guide main flow keeps browser choice neutral", () => {
+  const app = fixture({ empty: true });
+  assert.match(text(guide(app.render())), /安装连接器并配对常用浏览器/);
+  assert(!text(guide(app.render())).includes("Ego"));
+});
+
+test("guide pairing completion does not claim the browser is currently online", () => {
+  const app = fixture({ empty: true, paired: true });
+  app.state.browserConnection.online = false;
+  const tree = app.render();
+  assert.equal(guideStep(tree, 0).props["data-complete"], true);
+  assert.match(text(guideStep(tree, 0)), /已配置/);
+  assert(!text(guideStep(tree, 0)).includes("已连接"));
 });

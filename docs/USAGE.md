@@ -50,7 +50,12 @@ DSH 版使用插件配置的本机数据目录。主要文件：
 
 ## 各平台读取范围
 
-只读取可见 DOM；作品最多保存 200 条，代表当前页面已加载范围，不能视为全部历史。
+只读取可见 DOM，不自动遍历所有分页。作品列表代表当前页面已加载范围，不能视为全部历史。
+
+- **每次最多处理前 200 条。** 当前实现对采集结果中的作品列表取前 200 条，再校验和保存；无效条目会使最终保留数量更少。这是当前实现上限，不是平台限制，也没有可调为无限的设置。
+- **成功同步会替换作品列表。** 列表是最近一次成功同步的快照，不是逐次累加的作品档案；每日账号记录仍独立积累。读取失败则保留最后成功数据。
+- **不同内容类型共用上限。** 哔哩哔哩的视频、图文与音频合计最多处理 200 条，并非各 200 条。平台提供的作品总数与每日账号指标不受这个列表上限影响。
+- **看板说明本次保存范围。** 新同步会记录收到数量、保留数量、200 条上限及是否因该上限截断；收到数量只是采集器本次送回的条目数。未触及上限也不表示读完所有历史。旧记录没有这些信息时标为范围未知，不据此推断完整性。
 
 | 平台 | 统计与内容边界 |
 | --- | --- |
@@ -76,6 +81,8 @@ Chrome 最低 120，Edge 建议当前稳定版；Firefox 115+ 使用临时附加
 
 ## 安装到 DSH Desktop
 
+这里的宿主指 [DSH Desktop 官方桌面应用](https://dshdesktop.com/)，当前核对版本为 **0.11.1**。不泛指其他 DeepSeek Harness 环境；其他宿主版本未验证。此版本说明不代表下述原生界面加载已完成实测。
+
 先按[贡献指南](../CONTRIBUTING.md)准备 Node.js 22+ 和 pnpm 10.34.5，在项目根目录构建并打包：
 
 ```sh
@@ -91,14 +98,15 @@ pnpm pack
 <details>
 <summary>macOS 上已使用的 DSH CLI 安装方式</summary>
 
-以下路径对应本机 DSH Desktop 布局；其他安装位置请先确认 CLI 路径与本地包支持。包名中的 `0.5.0` 应与当前 `pnpm pack` 产物一致。
+以下路径对应本机 DSH Desktop 布局；其他安装位置请先确认 CLI 路径与本地包支持。请使用当前 `pnpm pack` 输出的包文件名；下方会从 `package.json` 读取版本。
 
 ```sh
+PACKAGE_VERSION="$(node -p 'JSON.parse(require("fs").readFileSync("package.json", "utf8")).version')"
 PATH="$HOME/Library/Application Support/dsh-desktop/harness/.desktop-bin:$PATH" \
 DSH_HOME="$HOME/Library/Application Support/dsh-desktop/harness" \
 "$HOME/Library/Application Support/dsh-desktop/harness/.desktop-bin/node" \
 '/Applications/DSH Desktop.app/Contents/Resources/app.asar/node_modules/@deepseek-ai/dsh/lib/bin.js' \
-plugin --profile web add "$PWD/dsh-workbench-personal-social-local-0.5.0.tgz" \
+plugin --profile web add "$PWD/dsh-workbench-personal-social-local-${PACKAGE_VERSION}.tgz" \
 --offline --ignore-scripts --config.auto-install-peers=false
 ```
 

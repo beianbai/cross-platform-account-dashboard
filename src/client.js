@@ -46,7 +46,7 @@ window.__ModuleLoader__.load({
             hour12: false,
           })
         : "尚无记录";
-    const accountData = a => JSON.stringify([a?.name, a?.accountId, a?.avatar, a?.bio, a?.fans, a?.following, a?.workCount, a?.likes, a?.works, a?.coverage]);
+    const accountData = a => JSON.stringify([a?.name, a?.accountId, a?.avatar, a?.bio, a?.fans, a?.following, a?.workCount, a?.likes, a?.works, a?.coverage, a?.workCollection]);
     const metric = (v) =>
       v?.display ??
       (Number.isFinite(v?.value) ? v.value.toLocaleString("zh-CN") : "—");
@@ -119,6 +119,50 @@ window.__ModuleLoader__.load({
     function savedTheme() {
       try { return window.localStorage.getItem(themeKey) === "dark" ? "dark" : "light"; }
       catch { return "light"; }
+    }
+    const guideKey = "psw-onboarding-v1";
+    function savedGuide() {
+      try {
+        const value = JSON.parse(window.localStorage.getItem(guideKey));
+        return value?.version === 1 && ["expanded", "collapsed", "skipped"].includes(value.mode) ? value.mode : null;
+      } catch { return null; }
+    }
+    function GuideArt({ step }) {
+      return h("svg", { className: "psw-guide-art", viewBox: "0 0 72 56", fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true },
+        h("rect", { x: 5, y: 8, width: 53, height: 38, rx: 7, fill: "var(--card)" }),
+        h("path", { d: "M5 18h53", opacity: .4 }),
+        h("path", { d: "M12 13h1m5 0h1", opacity: .6 }),
+        step === 0 ? h(React.Fragment, null,
+          h("path", { d: "M19 27v8m-4-4h8m8-4h8m-4-4v16", opacity: .65 }),
+          h("path", { className: "psw-guide-motion", d: "M48 34h8v-4h7v13h-7v-4h-8z", fill: "var(--accent-soft)" }))
+        : step === 1 ? h(React.Fragment, null,
+          h("circle", { cx: 24, cy: 28, r: 5 }), h("path", { d: "M15 40c1-9 17-9 18 0" }),
+          h("g", { className: "psw-guide-motion" }, h("circle", { cx: 56, cy: 37, r: 11, fill: "var(--accent-soft)" }), h("path", { d: "M51 37h10m-5-5v10" })))
+        : step === 2 ? h(React.Fragment, null,
+          h("path", { d: "M15 38h8V27h8v11h8V24", opacity: .65 }),
+          h("g", { className: "psw-guide-motion" }, h("rect", { x: 45, y: 27, width: 22, height: 22, rx: 7, fill: "var(--accent-soft)" }), h("path", { d: "m50 38 4 4 8-9" })))
+        : h(React.Fragment, null,
+          h("path", { d: "M15 27h23m-23 7h15", opacity: .5 }),
+          h("g", { className: "psw-guide-motion" }, h("circle", { cx: 55, cy: 37, r: 12, fill: "var(--accent-soft)" }), h("path", { d: "M55 30v8l5 3" }))));
+    }
+    function Onboarding({ connected, chosen, synced, scheduled, active, description, action, onCollapse, onSkip }) {
+      const steps = [
+        ["连接浏览器", connected, "已配置"],
+        ["添加一个平台", synced, "已绑定", chosen ? "已选择，待绑定" : "待选择"],
+        ["完成首次同步", synced, "已保存"],
+        ["设置自动同步", scheduled, "已开启"],
+      ];
+      return h("section", { className: "psw-onboarding", id: "psw-onboarding", "aria-label": "上手指南" },
+        h("div", { className: "psw-guide-head" }, h("h2", { tabIndex: -1, id: "psw-guide-title" }, "从一个账号开始"),
+          h("div", { className: "psw-actions" },
+            h("button", { type: "button", className: "psw-quiet", onClick: onCollapse, "aria-label": "收起指南" }, "收起"),
+            h("button", { type: "button", className: "psw-quiet", onClick: onSkip, "aria-label": "跳过指南" }, "跳过"))),
+        h("ol", { className: "psw-guide-steps" }, steps.map(([title, complete, done, waiting], index) =>
+          h("li", { key: title, "data-step": index, "data-complete": !!complete, "aria-current": active === index ? "step" : undefined },
+            h(GuideArt, { step: index }),
+            h("div", null, h("h3", null, h("span", { className: "psw-guide-number" }, complete ? h(Icon, { name: "check", size: 12 }) : index + 1), title),
+              h("small", null, complete ? done : index === 3 ? "可选" : waiting || (active === index ? "当前步骤" : "待完成")))))),
+        h("div", { className: "psw-guide-next" }, h("p", { "aria-live": "polite" }, description), action));
     }
     function SuccessNotice({ message, onClose }) {
       const clock = React.useRef({ remaining: 4000, started: 0, timer: null, reasons: new Set() });
@@ -359,6 +403,11 @@ window.__ModuleLoader__.load({
 @container(min-width:1120px){.psw .psw-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.psw .psw-card{padding:19px}.psw .psw-big{font-size:36px}.psw .psw-cardfooter{flex-wrap:wrap}.psw .psw-cardfooter>.psw-actions{margin-left:auto}}
 @container(max-width:740px){.psw main{padding:24px 22px 36px}.psw .psw-grid{grid-template-columns:1fr}.psw .psw-setting-grid{grid-template-columns:1fr;gap:15px}.psw .psw-metric-tabs button{padding:16px}.psw .psw-metric-tabs b{font-size:21px}.psw .psw-works{grid-template-columns:repeat(2,minmax(0,1fr))}.psw .psw-topbar{padding-left:max(18px,var(--dsh-frame-leading-clearance,0px));padding-right:18px;gap:8px}.psw .psw-brand{font-size:14px}.psw .psw-top-actions{gap:4px}.psw .psw-top-actions button{padding:8px 9px}}
 @container(max-width:520px){.psw .psw-topbar{flex-wrap:wrap;padding-top:8px;padding-bottom:8px;gap:4px}.psw .psw-brand{font-size:14px;width:100%}.psw .psw-mark{width:30px;height:30px}.psw .psw-mark svg{width:30px;height:30px}.psw .psw-top-actions{margin-left:0;width:100%;justify-content:flex-end}.psw .psw-top-actions button{min-height:38px}.psw main{padding:22px 16px 32px}.psw h1{font-size:25px}.psw .psw-heading{gap:9px}.psw .psw-pagehead{gap:10px;margin-bottom:20px}.psw .psw-pagehead button{padding:9px 11px;font-size:12px}.psw .psw-count{font-size:11px}.psw .psw-card{padding:18px}.psw .psw-cardfooter{flex-wrap:wrap;gap:6px}.psw .psw-cardfooter>.psw-actions{margin-left:auto}.psw .psw-notice{align-items:flex-start;flex-direction:column;gap:12px}.psw .psw-detail-head{align-items:flex-start;flex-direction:column;gap:14px}.psw .psw-metric-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}.psw .psw-metric-tabs button{min-height:82px}.psw .psw-metric-tabs button:nth-child(-n+2){border-bottom:1px solid var(--line)}.psw .psw-chart-panel{padding:18px 14px}.psw .psw-chart-panel>.psw-row{align-items:flex-start;gap:12px;flex-direction:column}.psw .psw-chart{height:220px}.psw .psw-coverage{grid-template-columns:1fr}.psw .psw-coverage>div{grid-template-columns:1fr 1fr;gap:6px 12px}.psw .psw-coverage small{grid-column:1/-1}.psw .psw-works{gap:13px}.psw .psw-cover{height:130px}.psw .psw-formrow,.psw .psw-runtime{grid-template-columns:1fr}.psw .psw-options{grid-template-columns:1fr}.psw .psw-dialogbody{padding:18px}.psw .psw-dialoghead{padding:13px 18px}.psw .psw-platformsetting{padding:17px}.psw .psw-schedule{padding:0 12px 15px}.psw .psw-archive-row{padding:12px;gap:9px;flex-wrap:wrap}.psw .psw-archive-row>button{margin-left:auto}.psw .psw-modal-overlay{padding:12px}.psw .psw-zone-options{max-height:200px}}
+
+.psw .psw-onboarding{margin:0 0 25px;padding:22px;border:1px solid var(--hover-border);border-radius:16px;background:linear-gradient(125deg,var(--accent-soft),var(--card) 55%);box-shadow:var(--shadow)}.psw .psw-guide-head{display:flex;align-items:center;justify-content:space-between;gap:16px}.psw .psw-guide-head h2{font-size:19px}.psw .psw-guide-head button{font-size:12px;padding:8px 10px;color:var(--muted)}.psw .psw-guide-steps{list-style:none;padding:0;margin:22px 0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.psw .psw-guide-steps li{position:relative;min-width:0;border:1px solid var(--line);border-radius:12px;padding:16px 12px;background:var(--card);color:var(--muted);transition:border-color .2s,background .2s}.psw .psw-guide-steps li[aria-current=step]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}.psw .psw-guide-steps h3{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink);line-height:1.5;overflow-wrap:anywhere}.psw .psw-guide-steps small{display:block;margin:7px 0 0 24px;font-size:12px}.psw .psw-guide-number{width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;border:1px solid var(--line);border-radius:50%;font-size:10px;color:var(--muted)}.psw .psw-guide-steps [aria-current=step] .psw-guide-number{background:var(--accent);border-color:var(--accent);color:var(--card)}.psw .psw-guide-steps [data-complete=true] .psw-guide-number{border-color:var(--success-line);color:var(--green);background:var(--success-bg)}.psw .psw-guide-art{display:block;width:72px;height:56px;margin:0 0 12px;color:var(--accent);opacity:.7}.psw .psw-guide-steps [aria-current=step] .psw-guide-art{opacity:1}.psw .psw-guide-steps [aria-current=step] .psw-guide-motion{transform-origin:55px 37px;animation:psw-guide-arrive .65s var(--ease) both}.psw .psw-guide-next{display:flex;align-items:center;justify-content:space-between;gap:22px;padding-top:18px;border-top:1px solid var(--line)}.psw .psw-guide-next p{font-size:13px;line-height:1.7;color:var(--muted);max-width:650px}.psw .psw-guide-next button{flex-shrink:0}.psw .psw-snapshot-scope{margin-top:10px;font-size:12px;line-height:1.7;color:var(--muted)}.psw .psw-snapshot-scope[data-truncated=true]{color:var(--warning-ink)}.psw .psw-snapshot-scope span{display:block;margin-top:4px}
+@keyframes psw-guide-arrive{from{opacity:.2;transform:translateY(4px) scale(.86)}to{opacity:1;transform:none}}
+@container(max-width:740px){.psw .psw-guide-steps{grid-template-columns:repeat(2,minmax(0,1fr))}.psw .psw-guide-steps li{display:flex;align-items:center;gap:10px}.psw .psw-guide-art{margin:0}.psw .psw-guide-next{align-items:flex-start;flex-direction:column;gap:14px}}
+@container(max-width:520px){.psw .psw-pagehead{flex-wrap:wrap}.psw .psw-onboarding{padding:16px}.psw .psw-guide-head{gap:6px}.psw .psw-guide-head h2{font-size:17px}.psw .psw-guide-head .psw-actions{gap:0}.psw .psw-guide-steps{grid-template-columns:1fr;gap:8px;margin:16px 0}.psw .psw-guide-steps li{padding:10px 12px}.psw .psw-guide-art{width:58px;height:45px}.psw .psw-guide-steps small{margin-top:3px}.psw .psw-home-actions{flex-wrap:wrap;justify-content:flex-end;gap:2px}.psw .psw-guide-next button{width:100%}}
 @media(prefers-reduced-motion:reduce){.psw *{animation:none!important;transition:none!important}.psw button:active:not(:disabled),.psw .psw-card:hover,.psw .psw-work a:hover img{transform:none}.psw .psw-card.is-syncing:before{width:100%;background:var(--accent);opacity:.5}}
 `;
     async function api(path, body) {
@@ -1302,13 +1351,15 @@ window.__ModuleLoader__.load({
         [workKind, setWorkKind] = React.useState("全部"),
         [theme, setTheme] = React.useState(savedTheme),
         [platformErrors, setPlatformErrors] = React.useState({}),
-        [operationError, setOperationError] = React.useState(null);
+        [operationError, setOperationError] = React.useState(null),
+        [guideMode, setGuideMode] = React.useState(savedGuide);
       const alive = React.useRef(true),
         mainRef = React.useRef(null),
         headerRef = React.useRef(null),
         scrollRef = React.useRef(0),
         detailPreferences = React.useRef({}),
-        manualJobs = React.useRef({});
+        manualJobs = React.useRef({}),
+        guideInitial = React.useRef(null);
       React.useEffect(() => {
         for (const element of [headerRef.current, mainRef.current])
           if (element) element.inert = !!modal;
@@ -1414,9 +1465,11 @@ window.__ModuleLoader__.load({
             timeZone: settings.timeZone || localZone(),
           },
         };
-      const status = (id) =>
-        state?.syncByPlatform?.[id] ||
-        (state?.sync?.platform === id ? state.sync : null);
+      const status = (id) => {
+        if (!state || !id) return null;
+        return state.syncByPlatform?.[id] ||
+          (state.sync?.platform === id ? state.sync : null);
+      };
       const sync = async (id, resume = false, path = "sync") => {
         const a = state?.accounts[id];
         manualJobs.current[id] = { status: JSON.stringify(status(id)), data: accountData(a) };
@@ -1495,6 +1548,42 @@ window.__ModuleLoader__.load({
                   "network_error",
                 ].includes(s.phase)),
           );
+      if (state && guideInitial.current === null) guideInitial.current = !bound.length;
+      const guideConnected = provider === "browser" ? !!connection?.paired : provider === "ego" ? environment?.status === "ready" : !!connection?.paired || environment?.status === "ready";
+      const guideSynced = bound.some(p => !!state.accounts[p.id].syncedAt);
+      const guideChosen = addPlatform || platforms.find(p => localSync[p.id]?.running || (status(p.id)?.phase && status(p.id).phase !== "idle"))?.id;
+      const guideScheduled = bound.some(p => ps(p.id).schedule?.enabled === true);
+      const guideActive = guideSynced ? 3 : !guideConnected ? 0 : !guideChosen ? 1 : 2;
+      const guideOpen = guideMode === "expanded" || (guideMode === null && guideInitial.current === true);
+      const changeGuide = mode => {
+        setGuideMode(mode);
+        try { window.localStorage.setItem(guideKey, JSON.stringify({ version: 1, mode })); } catch {}
+      };
+      const reopenGuide = () => {
+        changeGuide("expanded");
+        setView("overview");
+        requestAnimationFrame(() => { mainRef.current?.scrollTo?.(0, 0); mainRef.current?.querySelector?.("#psw-guide-title")?.focus(); });
+      };
+      const closeGuide = mode => {
+        changeGuide(mode);
+        requestAnimationFrame(() => mainRef.current?.querySelector?.("[data-guide-reopen]")?.focus());
+      };
+      const guideControl = () => h("button", { type: "button", className: "psw-quiet", "data-guide-reopen": true, "aria-expanded": view === "overview" && guideOpen, "aria-controls": "psw-onboarding", onClick: reopenGuide }, "上手指南");
+      const openAdd = () => { setAddPlatform(null); setUrl(""); setModal("add"); };
+      const guideRunning = guideChosen && (localSync[guideChosen]?.running || status(guideChosen)?.running || status(guideChosen)?.phase === "queued");
+      const guideNeedsLogin = ["needs_login", "needs_attention"].includes(status(guideChosen)?.phase);
+      const continueGuideSync = () => {
+        if (status(guideChosen)?.phase && status(guideChosen).phase !== "idle") return sync(guideChosen, true, guideNeedsLogin ? "login" : "sync");
+        setAddPlatform(guideChosen); setModal("add");
+      };
+      const guideDescription = guideActive === 0 ? "安装连接器并配对常用浏览器，已有连接可在连接设置中检查。"
+        : guideActive === 1 ? "选择一个平台；如需登录，请在原浏览器亲自完成。首次读取成功后才会绑定。"
+        : guideActive === 2 ? guideRunning ? "正在等待本次读取结果，成功保存后会出现账号卡片。" : "在原浏览器完成登录或验证，再读取账号。成功保存后，点击账号卡片查看详情。"
+        : "首次记录已保存，点击账号卡片查看详情。自动同步可稍后设置，仅在工作台运行且电脑唤醒时执行。";
+      const guideAction = guideActive === 0 ? btn("连接浏览器", () => setModal("connection"), "browser", "psw-primary")
+        : guideActive === 1 ? btn("添加一个平台", openAdd, "plus", "psw-primary")
+        : guideActive === 2 ? btn(guideRunning ? "等待同步结果" : guideNeedsLogin ? "前往浏览器处理" : "继续首次同步", continueGuideSync, "refresh", "psw-primary", !!guideRunning || pending)
+        : btn(guideScheduled ? "查看同步计划" : "设置自动同步", () => setView("settings"), "clock", "psw-primary");
       function issue({ p, s }) {
         const login = s.phase === "needs_login",
           attention = s.phase === "needs_attention";
@@ -1738,7 +1827,7 @@ window.__ModuleLoader__.load({
                       "div",
                       { className: "psw-pagehead" },
                       h("h1", null, "设置"),
-                      btn("返回账号", back, "back", "psw-quiet"),
+                      h("div", { className: "psw-actions" }, guideControl(), btn("返回账号", back, "back", "psw-quiet")),
                     ),
                     h(
                       "section",
@@ -1991,12 +2080,11 @@ window.__ModuleLoader__.load({
                         h(
                           "div",
                           { className: "psw-row" },
-                          h("h2", null, "已读取作品"),
+                          h("h2", null, "当前作品快照"),
                           h(
                             "span",
                             { className: "psw-count" },
-                            (account.works || []).length,
-                            " 条",
+                            `本次保留 ${Number.isInteger(account.workCollection?.retained) ? account.workCollection.retained : (account.works || []).length} 条`,
                           ),
                         ),
                         h(
@@ -2005,9 +2093,19 @@ window.__ModuleLoader__.load({
                             className: "psw-muted",
                             style: { fontSize: 12, marginTop: 7 },
                           },
-                          account.scope ||
-                            "仅包含当前页面读取到的作品，不代表全部作品。",
+                          "每次成功同步更新此列表，不是历史作品归档。",
                         ),
+                        h(
+                          "p",
+                          { className: "psw-snapshot-scope", "data-truncated": account.workCollection?.truncated === true },
+                          account.workCollection?.truncated === true
+                            ? "本次达到 200 条上限，还有返回内容未保存"
+                            : account.workCollection?.truncated === false
+                              ? "仅本次页面已加载内容，未确认全量"
+                              : "旧记录未保存截断信息，下次同步后更新",
+                          h("span", null, account.coverage ? "视频、图文、音频合计最多保留 200 条。" : "每次同步最多保留 200 条。"),
+                        ),
+                        account.scope && h("details", { className: "psw-snapshot-details" }, h("summary", null, "查看平台采集范围"), h("p", { className: "psw-muted", style: { fontSize: 12 } }, account.scope)),
                         account.coverage && h("div", { className: "psw-coverage", "aria-label": "作品采集范围" },
                           [["video", "视频"], ["opus", "图文"], ["audio", "音频"]].map(([key, label]) => {
                             const item = account.coverage[key];
@@ -2072,7 +2170,7 @@ window.__ModuleLoader__.load({
                               workKind !== "全部"
                                 ? `当前记录没有已读取的${workKind}，请参考上方分类状态。`
                                 : account.worksStatus === "empty"
-                                ? "平台显示作品总数为 0。"
+                                ? "平台确认暂无作品。"
                                 : "本次未读取到作品，账号总作品数以平台资料为准。",
                             ),
                       ),
@@ -2094,17 +2192,9 @@ window.__ModuleLoader__.load({
                             " 个平台",
                           ),
                         ),
-                        btn(
-                          "添加平台",
-                          () => {
-                            setAddPlatform(null);
-                            setUrl("");
-                            setModal("add");
-                          },
-                          "plus",
-                          "psw-primary",
-                        ),
+                        h("div", { className: "psw-actions psw-home-actions" }, guideControl(), btn("添加平台", openAdd, "plus", "psw-primary")),
                       ),
+                      guideOpen && h(Onboarding, { connected: guideConnected, chosen: guideChosen, synced: guideSynced, scheduled: guideScheduled, active: guideActive, description: guideDescription, action: guideAction, onCollapse: () => closeGuide("collapsed"), onSkip: () => closeGuide("skipped") }),
                       issues.filter(item => !visible.some(p => p.id === item.p.id)).map(issue),
                       platforms
                         .filter(
@@ -2153,7 +2243,7 @@ window.__ModuleLoader__.load({
                         ),
                       visible.length
                         ? h("div", { className: "psw-grid" }, visible.map(card))
-                        : h(
+                        : (!guideOpen || bound.length > 0) && h(
                             "div",
                             { className: "psw-empty" },
                             h(

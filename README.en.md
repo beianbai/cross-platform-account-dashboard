@@ -19,13 +19,20 @@ View account metrics, daily changes, and loaded posts from Xiaohongshu (RED), Do
 | What have I published recently? | Your own posts currently loaded on the page; the loaded list is not treated as the total post count |
 | Can I keep a history without syncing manually each time? | Per-platform schedules: once daily or every 1 / 3 / 6 / 12 hours; disabled by default |
 
-Run it on its own or inside DSH Desktop. Each platform currently holds one bound account; unbind it before switching accounts. **The local service (or DSH Desktop) and the connected browser must stay running for syncing.** Sleep and downtime are not recorded or backfilled.
+Run it on its own or inside [DSH Desktop](https://dshdesktop.com/). Each platform currently holds one bound account; unbind it before switching accounts. **The local service (or DSH Desktop) and the connected browser must stay running for syncing.** Sleep and downtime are not recorded or backfilled.
 
 ## Get started
 
-### 1. Start the local dashboard
+Choose a launch option, then follow the four steps below. The home page’s “上手指南” (Getting started) also shows your current step; you can skip it and reopen it anytime.
 
-You need **Node.js 22+**. Clone the source and enter the project directory:
+| Launch option | Get started |
+| --- | --- |
+| **Standalone** | Install Node.js 22+, run the commands below, and open the local dashboard in your browser |
+| **DSH Desktop** | Use the desktop application from the [official DSH Desktop site](https://dshdesktop.com/), then follow the [local package installation guide — 中文](docs/USAGE.md#安装到-dsh-desktop); local installation checked with **0.11.1** |
+
+The two modes store data separately and do not share accounts or authorization automatically.
+
+For standalone use:
 
 ```sh
 git clone https://github.com/beianbai/cross-platform-account-dashboard.git
@@ -39,20 +46,20 @@ Startup builds the interface and browser connectors automatically. Open the **fu
 The default address is `http://127.0.0.1:43120`; use the terminal URL for your first visit. Later, the same browser can open the base address directly. Press `Ctrl+C` to stop the service and scheduled syncing.
 
 <details>
-<summary>Use pnpm or install into DSH Desktop</summary>
+<summary>Start the standalone version with pnpm</summary>
 
-The project pins pnpm 10.34.5. Alternatively, run:
+The project pins pnpm 10.34.5. Run these commands in the project directory:
 
 ```sh
 pnpm install --frozen-lockfile
 pnpm start
 ```
 
-For DSH, see the [local installation instructions — 中文](docs/USAGE.md#安装到-dsh-desktop). Standalone and DSH modes store data separately and do not automatically share accounts or authorization.
-
 </details>
 
-### 2. Connect your signed-in browser
+![Four steps: connect your signed-in browser, add one platform, confirm the first sync, and optionally enable a schedule](assets/getting-started.en.svg)
+
+### 1. Connect your browser
 
 For Chrome / Edge:
 
@@ -62,11 +69,17 @@ For Chrome / Edge:
 
 Install the extension and confirm permissions yourself. Sign in to each platform in your own browser. Full instructions, including Firefox setup, are in the [connector guide — 中文](extension/README.md).
 
-### 3. Complete your first sync
+### 2. Add one platform
 
-Click “添加平台” (Add platform), select a platform, and start reading. If sign-in or a CAPTCHA is required, complete it on the platform page, then click “继续读取” (Continue reading) in the dashboard. The connector checks for tasks about every 30 seconds, so pickup may take a moment.
+Click “添加平台” (Add platform), select one platform, and start reading. If sign-in or a CAPTCHA is required, complete it on the platform page, then click “继续读取” (Continue reading) in the dashboard. The connector checks for tasks about every 30 seconds, so pickup may take a moment.
+
+### 3. Confirm the first sync
 
 **Success means an account card and sync time appear in the dashboard.** Open its details to see the metrics and posts collected. Trends accumulate from successful observations. “已提交” (Submitted) in the extension only confirms delivery; use the dashboard's final sync result to confirm that data was saved.
+
+### 4. Optionally enable a schedule
+
+In the platform settings, enable “自动同步” (Automatic sync) and choose a daily time or every 1 / 3 / 6 / 12 hours. Schedules are off by default; manual syncing remains available. Keep the local service (or DSH Desktop) and browser running. See [daily history and scheduling — 中文](docs/USAGE.md#每日记录与自动同步).
 
 ## Browser support
 
@@ -83,7 +96,7 @@ Only one extension connection is authorized at a time; pairing again replaces th
 ## Data and collection limits
 
 - **Stored locally.** Accounts, history, and authorization stay in a local directory. The standalone service listens only on `127.0.0.1`. See [storage, backups, and port settings — 中文](docs/USAGE.md#数据目录与备份).
-- **Read-only page collection.** No passwords or cookies are read, no private platform APIs or CAPTCHA bypasses are used, and no posts, likes, comments, or follows are made. At most 200 loaded posts are saved; full historical coverage is not guaranteed.
+- **Read-only page collection.** No passwords or cookies are read, no private platform APIs or CAPTCHA bypasses are used, and no posts, likes, comments, or follows are made. **Each sync processes at most the first 200 posts loaded on the current page.** A successful sync replaces the post list; it does not build a cumulative post archive or traverse all pages. The 200-post cap is an implementation limit, not a platform restriction, and does not cap platform post totals or daily account metrics. See [collection scope — 中文](docs/USAGE.md#各平台读取范围).
 - **Metrics keep their meaning.** Rounded values are marked as estimates. Net changes require consecutive calendar days in the same time zone. X's cumulative account likes remain unknown. See [platform-specific counting rules — 中文](docs/USAGE.md#各平台读取范围).
 - **Recoverable failures.** Sign-in, verification, or account-identity problems retain the last successful data and pause the affected platform. Hiding a platform does not stop its schedule. Unbinding stops its schedule and keeps a local archive; rebinding the same account can restore it.
 

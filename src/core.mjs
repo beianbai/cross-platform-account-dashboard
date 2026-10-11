@@ -37,6 +37,7 @@ export function safeWorkURL(platform,value) {
     return u.href;
   }catch{return '';}
 }
+const WORK_LIMIT=200;
 export function normalizeSnapshot(platform,raw,expected='') {
   if(!raw||typeof raw!=='object')throw Error('平台没有返回可核验的个人主页');
   const url=profileURL(platform,raw.url);
@@ -46,8 +47,8 @@ export function normalizeSnapshot(platform,raw,expected='') {
   if(platform==='douyin'&&url.endsWith('/user/self')&&!String(raw.accountId||'').trim())throw Error('未识别到抖音号，无法安全绑定当前登录账号');
   const fans=parseCount(raw.fans),following=parseCount(raw.following);
   if(!fans && !following)throw Error('粉丝与关注数据均未识别，请检查平台登录或页面结构');
-  const seen=new Set(),works=[];
-  for(const item of (Array.isArray(raw.works)?raw.works:[]).slice(0,200)) {
+  const seen=new Set(),works=[],receivedWorks=Array.isArray(raw.works)?raw.works:[];
+  for(const item of receivedWorks.slice(0,WORK_LIMIT)) {
     const link=safeWorkURL(platform,item.url);if(!link)continue;
     if(platform==='x'&&new URL(link).pathname.split('/')[1]!==new URL(url).pathname.slice(1))continue;
     const id=new URL(link).pathname;if(seen.has(id))continue;seen.add(id);
@@ -64,7 +65,8 @@ export function normalizeSnapshot(platform,raw,expected='') {
       return [key,{total:parseCount(item.total),loaded,status:status==='empty'&&loaded?'partial':status,...(reason?{reason}:{})}];
     }));
   }
-  return {...(coverage?{coverage}:{}),platform,url,name,avatar:safeMediaURL(raw.avatar),bio:String(raw.bio||'').slice(0,500),accountId:String(raw.accountId||'').slice(0,160),fans,following,likes:platform==='x'?null:parseCount(raw.likes),workCount:parseCount(raw.workCount),works,scope:String(raw.scope||'仅当前已加载的作品，不代表全部').slice(0,250),worksStatus:raw.worksStatus==='empty'?'empty':works.length?'partial':'unavailable',syncedAt:new Date().toISOString()};
+  const workCollection={limit:WORK_LIMIT,received:receivedWorks.length,retained:works.length,truncated:receivedWorks.length>WORK_LIMIT};
+  return {workCollection,...(coverage?{coverage}:{}),platform,url,name,avatar:safeMediaURL(raw.avatar),bio:String(raw.bio||'').slice(0,500),accountId:String(raw.accountId||'').slice(0,160),fans,following,likes:platform==='x'?null:parseCount(raw.likes),workCount:parseCount(raw.workCount),works,scope:String(raw.scope||'仅当前已加载的作品，不代表全部').slice(0,250),worksStatus:raw.worksStatus==='empty'?'empty':works.length?'partial':'unavailable',syncedAt:new Date().toISOString()};
 }
 const METRICS=['fans','following','likes','workCount'];
 const systemTimeZone=()=>Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -102,6 +104,10 @@ function validateSample(sample,daily=false) {
 function validateAccount(platform,record,version) {
   if(!PLATFORMS.includes(platform)||!object(record)||(record.platform!=null&&record.platform!==platform)||!record.url||profileURL(platform,record.url)!==record.url||typeof record.name!=='string'||!record.name||!Array.isArray(record.works)||!Array.isArray(record.history)||!validAt(record.syncedAt))throw Error('账号记录损坏，未覆盖');
   for(const key of METRICS)validateMetric(record[key]);
+  if(record.workCollection!=null){
+    const c=record.workCollection;
+    if(!object(c)||c.limit!==WORK_LIMIT||!Number.isSafeInteger(c.received)||c.received<0||c.retained!==record.works.length||c.retained>WORK_LIMIT||c.received<c.retained||typeof c.truncated!=='boolean'||c.truncated!==(c.received>WORK_LIMIT))throw Error('作品读取范围记录损坏，未覆盖');
+  }
   if(record.coverage!=null){
     if(platform!=='bilibili'||!object(record.coverage))throw Error('作品分类记录损坏，未覆盖');
     for(const [key,item] of Object.entries(record.coverage)){

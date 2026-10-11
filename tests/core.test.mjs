@@ -57,3 +57,33 @@ test('Bilibili coverage preserves per-kind totals without leaking arbitrary coll
  const raw={url:'https://space.bilibili.com/123',accountId:'123',name:'投稿者',fans:'2',following:'3',workCount:'3',works:[{url:'https://www.bilibili.com/opus/12345',kind:'图文'},{url:'https://www.bilibili.com/audio/au123',kind:'音频'}],coverage:{video:{total:'0',loaded:0,status:'empty'},opus:{total:'2',loaded:99,status:'partial',cookie:'secret'},audio:{total:null,loaded:1,status:'unavailable',reason:'network_error'},other:{token:'secret'}}};
  const a=normalizeSnapshot('bilibili',raw);assert.equal(a.works.length,2);assert.deepEqual(a.coverage.video,{total:{value:0,display:'0',approximate:false},loaded:0,status:'empty'});assert.equal(a.coverage.opus.loaded,1);assert.equal(a.coverage.opus.cookie,undefined);assert.equal(a.coverage.other,undefined);assert.equal(a.coverage.audio.reason,'network_error');assert.equal(a.coverage.audio.total,null);
 });
+
+test('work collection exposes truncation without changing platform totals or trusting supplied metadata',()=>{
+  const works=Array.from({length:205},(_,i)=>({url:'https://www.douyin.com/video/'+(1000+i)}));
+  const account=normalizeSnapshot('douyin',{...sample(),workCount:'999',works,workCollection:{limit:9999,truncated:false}});
+  assert.equal(account.works.length,200);
+  assert.equal(account.workCount.value,999);
+  assert.deepEqual(account.workCollection,{limit:200,received:205,retained:200,truncated:true});
+  const exact=normalizeSnapshot('douyin',{...sample(),workCount:'200',works:works.slice(0,200)});
+  assert.equal(exact.workCollection.truncated,false);
+});
+test('work collection counts retained valid unique works and does not imply complete history',()=>{
+  const account=normalizeSnapshot('douyin',{...sample(),workCount:'300',works:[{url:'https://www.douyin.com/video/1'},{url:'https://www.douyin.com/video/1'},{url:'https://evil.test/video/2'}]});
+  assert.deepEqual(account.workCollection,{limit:200,received:3,retained:1,truncated:false});
+  const state=applySnapshot(emptyState(),'douyin',account);
+  const next=normalizeSnapshot('douyin',{...sample(),workCount:'300',works:[{url:'https://www.douyin.com/video/2'}]});
+  const updated=applySnapshot(state,'douyin',next);
+  assert.equal(updated.accounts.douyin.works.length,1);
+  assert.equal(updated.accounts.douyin.works[0].url,'https://www.douyin.com/video/2');
+});
+test('optional collection metadata survives save/reload while legacy records remain accepted',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'social-collection-test-'));
+  const account=normalizeSnapshot('douyin',sample());
+  const state=applySnapshot(emptyState(),'douyin',account);
+  await saveState(root,state);assert.deepEqual((await loadState(root)).accounts.douyin.workCollection,{limit:200,received:0,retained:0,truncated:false});
+  const legacy=structuredClone(state);delete legacy.accounts.douyin.workCollection;
+  await saveState(root,legacy);assert.equal((await loadState(root)).accounts.douyin.workCollection,undefined);
+  const corrupted=structuredClone(state);corrupted.accounts.douyin.workCollection={limit:200,received:0,retained:2,truncated:false};
+  await assert.rejects(saveState(root,corrupted),/作品读取范围/);
+  assert.equal((await loadState(root)).accounts.douyin.workCollection,undefined);
+});

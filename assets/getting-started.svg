@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 450" width="640" height="450" role="img" aria-labelledby="title desc">
+  <title id="title">四步，开始记录账号变化</title>
+  <desc id="desc">连接浏览器，添加一个平台，确认首次同步，再按需开启计划。</desc>
+  <defs>
+    <linearGradient id="surface" x2="1" y2="1"><stop stop-color="#f4f9ff"/><stop offset="1" stop-color="#edf5ff"/></linearGradient>
+    <marker id="arrow" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="5" markerHeight="5" orient="auto"><path d="M1 1l4 3-4 3" fill="none" stroke="#83a9dc" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif; }
+      .flow { fill: none; stroke: #abc7eb; stroke-width: 2.5; marker-end: url(#arrow); }
+      .travel { fill: none; stroke: #4a86d7; stroke-width: 2.5; stroke-dasharray: 3 10; animation: progress 6s linear infinite; }
+      @keyframes progress { to { stroke-dashoffset: -52; } }
+      @media (prefers-reduced-motion: reduce) { .travel { animation: none; } }
+    </style>
+  </defs>
+  <rect x="1" y="1" width="638" height="448" rx="24" fill="url(#surface)" stroke="#d9e7f7"/>
+  <text x="26" y="45" font-size="26" font-weight="650" fill="#244467">四步，开始记录账号变化</text>
+  <path class="flow" d="M302 162h31"/>
+  <path class="flow" d="M470 236v12a7 7 0 0 1-7 7H177a7 7 0 0 0-7 7v11"/>
+  <path class="flow" d="M302 348h31"/>
+  <path class="travel" d="M302 162h28M470 237v11a7 7 0 0 1-7 7H177a7 7 0 0 0-7 7v8M302 348h28"/>
+  <g transform="translate(24 82)">
+    <rect width="278" height="152" rx="18" fill="#fff" stroke="#d4e3f5"/>
+    <rect x="18" y="16" width="50" height="50" rx="13" fill="#edf5ff"/>
+    <g transform="translate(26 25)" fill="none" stroke="#387acb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="0" y="0" width="34" height="27" rx="5"/><path d="M0 8h34M7 4h1m4 0h1M11 20l4-4m4 4 4-4"/></g>
+    <text x="252" y="46" text-anchor="end" font-size="25" font-weight="650" fill="#84a9d8">01</text>
+    <text x="18" y="94" font-size="24" font-weight="650" fill="#213f60">连接浏览器</text>
+    <text x="18" y="120" font-size="20" fill="#55708d">配对已登录的浏览器</text>
+  </g>
+  <g transform="translate(338 82)">
+    <rect width="278" height="152" rx="18" fill="#fff" stroke="#d4e3f5"/>
+    <rect x="18" y="16" width="50" height="50" rx="13" fill="#edf5ff"/>
+    <g transform="translate(26 25)" fill="none" stroke="#387acb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="0" y="0" width="14" height="14" rx="4"/><rect x="20" y="0" width="14" height="14" rx="4"/><rect x="0" y="20" width="14" height="14" rx="4"/><path d="M27 21v12m-6-6h12"/></g>
+    <text x="252" y="46" text-anchor="end" font-size="25" font-weight="650" fill="#84a9d8">02</text>
+    <text x="18" y="94" font-size="24" font-weight="650" fill="#213f60">添加一个平台</text>
+    <text x="18" y="120" font-size="20" fill="#55708d">从一个账号开始</text>
+  </g>
+  <g transform="translate(24 274)">
+    <rect width="278" height="152" rx="18" fill="#fff" stroke="#d4e3f5"/>
+    <rect x="18" y="16" width="50" height="50" rx="13" fill="#edf5ff"/>
+    <g transform="translate(26 25)" fill="none" stroke="#387acb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M27 8A14 14 0 0 0 3 13m0-7v7h7M5 24a14 14 0 0 0 24-5m0 7v-7h-7M10 17l4 4 8-8"/></g>
+    <text x="252" y="46" text-anchor="end" font-size="25" font-weight="650" fill="#84a9d8">03</text>
+    <text x="18" y="94" font-size="24" font-weight="650" fill="#213f60">首次同步</text>
+    <text x="18" y="120" font-size="20" fill="#55708d">确认账号与同步时间</text>
+  </g>
+  <g transform="translate(338 274)">
+    <rect width="278" height="152" rx="18" fill="#fff" stroke="#d4e3f5"/>
+    <rect x="18" y="16" width="50" height="50" rx="13" fill="#edf5ff"/>
+    <g transform="translate(26 25)" fill="none" stroke="#387acb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="17" cy="17" r="15"/><path d="M17 7v10l7 4"/></g>
+    <text x="252" y="46" text-anchor="end" font-size="25" font-weight="650" fill="#84a9d8">04</text>
+    <text x="18" y="94" font-size="24" font-weight="650" fill="#213f60">按需设置计划</text>
+    <text x="18" y="120" font-size="20" fill="#55708d">可选 · 保持浏览器运行</text>
+  </g>
+</svg>
