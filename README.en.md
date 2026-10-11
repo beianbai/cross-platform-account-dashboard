@@ -75,6 +75,10 @@ For Chrome / Edge:
 
 Install the extension and confirm permissions yourself. Sign in to each platform in your own browser. Full instructions, including Firefox setup, are in the [connector guide — 中文](extension/README.md).
 
+<a href="assets/browser-connector.png"><img src="assets/browser-connector.png" alt="Light-theme browser connector showing an authorized demo browser, sync task status, the latest result, and controls to check tasks, reconnect, or disconnect" width="380"></a>
+
+*Actual extension interface with demo connection and task states; no real authorization details are shown. Click the image to view it at full size.*
+
 ### 2. Add one platform
 
 Click “添加平台” (Add platform), select one platform, and start reading. If sign-in or a CAPTCHA is required, complete it on the platform page, then click “继续读取” (Continue reading) in the dashboard. The connector checks for tasks about every 30 seconds, so pickup may take a moment.
