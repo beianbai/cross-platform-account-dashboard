@@ -22,6 +22,8 @@
     "lib",
     "cordis.patch.yml",
     "README.md",
+    "README.en.md",
+    "docs/USAGE.md",
     "docs/PLATFORM-DEVELOPMENT.md",
     "LICENSE",
     "standalone",
