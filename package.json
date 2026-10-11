@@ -1,0 +1,63 @@
+{
+  "name": "dsh-workbench-personal-social-local",
+  "version": "0.4.0",
+  "private": true,
+  "type": "module",
+  "description": "把分散在多个平台的账号数据集中到一个看板，快速查看粉丝、关注、作品及每日变化。为各个平台单独设置自动同步，登录失效时及时提示，并保留历史记录，方便持续追踪账号表现。数据保存在本机，还可通过内置开发向导扩展更多平台。",
+  "author": "本机用户",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dsh-local-5bb86301/personal-social"
+  },
+  "main": "./dsh/index.js",
+  "exports": {
+    ".": "./dsh/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": [
+    "dsh",
+    "lib",
+    "src/*.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "docs/PLATFORM-DEVELOPMENT.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "dsh-desktop-workbenches"
+      ]
+    }
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "build": "node scripts/build.mjs",
+    "check": "node scripts/check-workbench-package.mjs"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "~3.18.4"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.4",
+    "@deepseek-ai/dsh-client-connection": ">=0.2.0-rc.2 <0.3.0-0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-connection": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

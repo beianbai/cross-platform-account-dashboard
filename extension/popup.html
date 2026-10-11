@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>跨平台账号看板 · 浏览器连接</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="brand">
+    <svg class="brand-logo" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" fill="none" stroke="#79dfda" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 10H9L15 16M4 20H15M5 30H9L15 24"/><rect x="15" y="8" width="21" height="24" rx="6" fill="#1a2129"/><path d="M21 17H30M21 23H27"/><g fill="#101419"><circle cx="5" cy="10" r="2"/><circle cx="4" cy="20" r="2"/><circle cx="5" cy="30" r="2"/></g></svg>
+    <div><h1>跨平台账号看板</h1><p>浏览器连接</p></div>
+    <span class="local-badge">本机</span>
+  </header>
+
+  <main>
+    <section class="connection-card" aria-label="当前连接">
+      <div class="section-heading"><span>当前连接</span><span id="connection-state" class="state-pill" data-tone="neutral">检查中</span></div>
+      <h2 id="connection-title">正在检查连接</h2>
+      <p id="connection-detail" class="muted">读取此浏览器的连接状态…</p>
+    </section>
+
+    <section id="connected-panel" hidden aria-label="任务与结果">
+      <div class="task-row"><div class="section-heading"><h2>同步任务</h2><span id="task-state" class="state-pill" data-tone="neutral">等待任务</span></div><p id="task-detail" class="muted">等待看板中的手动读取或自动同步任务。</p></div>
+      <div class="result-row"><span class="small-label">最近结果</span><p id="result-text">暂无读取记录</p><time id="result-time" hidden></time></div>
+      <button id="poll" class="button primary" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 7a6.4 6.4 0 0 0-11-2L3 7m0-4v4h4M4 13a6.4 6.4 0 0 0 11 2l2-2m0 4v-4h-4"/></svg><span id="poll-label">检查待执行任务</span></button>
+      <div class="secondary-actions"><button id="reconnect" class="button quiet" type="button" aria-expanded="false" aria-controls="pair-panel">重新连接</button><button id="disconnect" class="button quiet danger" type="button">断开连接</button></div>
+    </section>
+
+    <section id="pair-panel" hidden aria-label="授权连接">
+      <p class="pair-intro">使用此浏览器已登录的账号，执行看板中的手动读取与自动同步。</p>
+      <form id="pair-form" novalidate>
+        <label for="code">连接码</label>
+        <textarea id="code" rows="2" placeholder="粘贴 dsh-social://… 连接码" autocomplete="off" spellcheck="false" aria-describedby="code-hint code-error"></textarea>
+        <p id="code-hint" class="field-hint">在看板中生成；两分钟内有效，请勿分享。</p>
+        <p id="code-error" class="field-error" role="alert"></p>
+        <label for="label">此浏览器的名称</label>
+        <input id="label" value="我的浏览器" maxlength="60" autocomplete="off">
+        <button id="pair" class="button primary" type="submit">授权连接本机看板</button>
+        <button id="cancel-pair" class="button quiet" type="button" hidden>取消重新连接</button>
+      </form>
+    </section>
+    <p id="status" class="notice" role="status" aria-live="polite" aria-atomic="true" hidden></p>
+  </main>
+  <footer><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="2"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg><span>仅连接本机 · 不读取密码或 Cookie</span></footer>
+  <script src="popup.js"></script>
+</body>
+</html>

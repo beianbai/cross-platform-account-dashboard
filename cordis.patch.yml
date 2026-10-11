@@ -1,0 +1,5 @@
+- insert:
+    - id: personal-social-local
+      name: dsh-workbench-personal-social-local
+      config:
+        root: !!js dshHomePath('personal-social-local')
