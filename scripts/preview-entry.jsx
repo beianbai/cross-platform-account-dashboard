@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 document.title = "跨平台账号看板 · UI QA";
 const params = new URLSearchParams(location.search);
 // An explicit preview theme keeps screenshot capture reproducible without changing production defaults.
-if (["light", "dark"].includes(params.get("theme"))) localStorage.setItem("psw-theme", params.get("theme"));
+if (["light", "dark", "system"].includes(params.get("theme"))) localStorage.setItem("psw-theme", params.get("theme"));
 const platforms = [
   {
     id: "xiaohongshu",
@@ -165,6 +165,10 @@ if (params.has("library")) for (const account of Object.values(state.accounts)) 
   account.scope = "读取本人发布的作品，按批保存。";
 }
 if (params.has("sparse")) for (const account of Object.values(state.accounts)) account.daily = account.daily.slice(-1);
+if (params.has("mixed-history")) {
+  if (state.accounts.douyin) state.accounts.douyin.daily = state.accounts.douyin.daily.slice(-1);
+  if (state.accounts.bilibili) state.accounts.bilibili.daily = [];
+}
 if (params.has("archive")) state.archives.push({ platform: "bilibili", archivedAt: "2026-10-09T12:00:00Z", account: sample("bilibili") });
 if (params.has("login"))
   state.syncByPlatform.douyin = {

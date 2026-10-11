@@ -9,7 +9,7 @@ const code = await readFile(
 const value = (n) => ({ value: n, display: String(n), approximate: false });
 const day = (n) =>
   new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
-function fixture({ paired = false, hidden = false, phase = null, syncFailure = false, syncGate = null, storedTheme = null, requestFailures = {}, empty = false, storedGuide = null, storageUnavailable = false, initialLoading = false } = {}) {
+function fixture({ paired = false, hidden = false, phase = null, syncFailure = false, syncGate = null, storedTheme = null, systemDark = false, requestFailures = {}, empty = false, storedGuide = null, storageUnavailable = false, initialLoading = false } = {}) {
   const account = {
     platform: "douyin",
     name: "林间的慢镜头",
@@ -140,6 +140,7 @@ function fixture({ paired = false, hidden = false, phase = null, syncFailure = f
     setTimeout(fn, delay) { const id = ++timerId; timers.set(id, { fn, at: now + delay }); return id; },
     clearTimeout(id) { timers.delete(id); },
     window: {
+      matchMedia: () => ({ matches: systemDark }),
       localStorage: { getItem: key => { if (storageUnavailable) throw Error("storage unavailable"); return storage.get(key); }, setItem: (key, value) => { if (storageUnavailable) throw Error("storage unavailable"); storage.set(key, value); } },
       getSelection: () => ({ toString: () => selection }),
       innerHeight: 800,
@@ -631,7 +632,7 @@ test("non-ready connection checks show actionable errors instead of green succes
 });
 
 
-test("default Light and sun/moon preference persist across remounts", () => {
+test("theme cycles light, dark, system and persists the selected mode", () => {
   const app = fixture();
   assert.equal(app.render().props["data-theme"], "light");
   button(app.render(), "切换为深色").props.onClick();
@@ -639,8 +640,17 @@ test("default Light and sun/moon preference persist across remounts", () => {
   assert.equal(app.storage.get("psw-theme"), "dark");
   const restored = fixture({ storedTheme: app.storage.get("psw-theme") });
   assert.equal(restored.render().props["data-theme"], "dark");
-  button(restored.render(), "切换为浅色").props.onClick();
-  assert.equal(restored.storage.get("psw-theme"), "light");
+  button(restored.render(), "切换为跟随系统").props.onClick();
+  assert.equal(restored.storage.get("psw-theme"), "system");
+  assert.equal(restored.render().props["data-theme"], "light");
+  const system = fixture({ storedTheme: "system", systemDark: true });
+  assert.equal(system.render().props["data-theme"], "dark");
+  const toggle = button(system.render(), "切换为浅色");
+  assert.equal(toggle.props["data-mode"], "system");
+  assert.match(toggle.props.title, /跟随系统/);
+  toggle.props.onClick();
+  assert.equal(system.render().props["data-theme"], "light");
+  assert.equal(system.storage.get("psw-theme"), "light");
 });
 test("account card routes from its body and keyboard while controls and selected text remain independent", async () => {
   const app = fixture();
@@ -1065,4 +1075,10 @@ test("paused incremental resumes its own mode and saved fallback is the library 
   await app.poll();
   assert.match(text(app.render()), /已保存 1 条/);
   assert(!text(app.render()).includes("已保存 450 条"));
+});
+
+test("manual theme overrides system appearance and invalid saved themes fall back to light", () => {
+  assert.equal(fixture({ storedTheme: "light", systemDark: true }).render().props["data-theme"], "light");
+  assert.equal(fixture({ storedTheme: "dark", systemDark: false }).render().props["data-theme"], "dark");
+  assert.equal(fixture({ storedTheme: "invalid", systemDark: true }).render().props["data-theme"], "light");
 });
