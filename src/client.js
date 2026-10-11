@@ -2760,7 +2760,7 @@ window.__ModuleLoader__.load({
         ctx.desktopWorkbenches.register(
           {
             title: "跨平台账号看板",
-            repository: "https://github.com/dsh-local-5bb86301/personal-social",
+            repository: "https://github.com/beianbai/cross-platform-account-dashboard",
             description: "小红书、抖音、哔哩哔哩、X，一个看板查看账号与作品。支持定时同步、每日趋势和本地历史记录，可扩展更多平台。",
             screenshot: "__WORKBENCH_COVER__",
             icon: "◈",

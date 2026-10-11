@@ -1,6 +1,6 @@
 {
   "name": "dsh-workbench-personal-social-local",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "type": "module",
   "description": "小红书、抖音、哔哩哔哩、X，一个看板查看账号与作品。支持定时同步、每日趋势和本地历史记录，可扩展更多平台。",
@@ -8,7 +8,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dsh-local-5bb86301/personal-social"
+    "url": "https://github.com/beianbai/cross-platform-account-dashboard"
   },
   "main": "./dsh/index.js",
   "exports": {
