@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "跨平台账号看板 · 浏览器连接",
+  "version": "0.6.1",
+  "description": "在你自己的浏览器中登录，授权本机工作台只读同步账号与作品。",
+  "permissions": [
+    "storage",
+    "scripting",
+    "alarms"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "https://www.xiaohongshu.com/*",
+    "https://www.douyin.com/*",
+    "https://www.bilibili.com/*",
+    "https://space.bilibili.com/*",
+    "https://x.com/*",
+    "https://www.x.com/*"
+  ],
+  "icons": {
+    "16": "icon16.png",
+    "32": "icon32.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "跨平台账号看板",
+    "default_icon": {
+      "16": "icon16.png",
+      "32": "icon32.png"
+    }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "minimum_chrome_version": "120"
+}
