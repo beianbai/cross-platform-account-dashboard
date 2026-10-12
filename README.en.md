@@ -91,6 +91,8 @@ Click “添加平台” (Add platform), select one platform, and start reading.
 
 In the platform settings, enable “自动同步” (Automatic sync) and choose a daily time or every 1 / 3 / 6 / 12 hours. Schedules are off by default; manual syncing remains available. Keep the local service (or DSH Desktop) and browser running. See [daily history and scheduling — 中文](docs/USAGE.md#每日记录与自动同步).
 
+The Release asset `cross-platform-account-dashboard.tgz` is for **DSH Desktop**. It includes the workbench UI and browser connectors, but not the prebuilt standalone UI. For **standalone use**, download or clone the source and run `npm install` followed by `npm start` as above; startup builds the full standalone interface.
+
 ## Browser support
 
 | Browser | Connection and limitations |
