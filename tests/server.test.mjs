@@ -49,3 +49,30 @@ test('simultaneous requests for the same account deliver only one browser task',
  const job=await jobFrom(browser);assert.equal(job.platform,'douyin');assert.equal((await(await browser('/poll')).json()).job,null);
  await browser('/result',{id:job.id,status:'needs_login'});const state=await settled(app);assert.equal(state.sync.phase,'needs_login');assert.deepEqual(state.accounts,{});
 });
+
+test('backup restores accounts, works, archives and settings without changing live data', async t=>{
+ const {readFile,rm}=await import('node:fs/promises');
+ const {loadState}=await import('../src/store.mjs');
+ const {unbindAccount}=await import('../src/core.mjs');
+ let seed=applySnapshot(emptyState('Asia/Shanghai'),'douyin',normalizeSnapshot('douyin',{url:'https://www.douyin.com/user/self',accountId:'backup-fixture',name:'备份测试',fans:'42',following:'2',works:[]}));
+ seed=unbindAccount(seed,'douyin');
+ seed=applySnapshot(seed,'douyin',normalizeSnapshot('douyin',{url:'https://www.douyin.com/user/self',accountId:'current-fixture',name:'当前测试',fans:'55',following:'3',works:[{url:'https://www.douyin.com/video/123',title:'备份作品',kind:'视频'}]}));
+ const app=await harness(seed);t.after(async()=>{await app.dispose();await rm(app.root,{recursive:true,force:true});});
+ const before=await readFile(join(app.root,'accounts.json'),'utf8');
+ const response=await app.call('backup',{});assert.equal(response.status,200);
+ const backup=await response.json();assert.deepEqual(backup,seed);
+ const restored=await mkdtemp(join(tmpdir(),'social-backup-restore-'));t.after(()=>rm(restored,{recursive:true,force:true}));
+ await saveState(restored,backup);const loaded=await loadState(restored);
+ assert.equal(loaded.accounts.douyin.fans.value,55);assert.equal(loaded.accounts.douyin.works[0].title,'备份作品');assert.equal(loaded.archives[0].fans.value,42);
+ assert.equal(await readFile(join(app.root,'accounts.json'),'utf8'),before);
+});
+
+test('backup refuses to export an empty replacement when stored data is corrupt',async t=>{
+ const {writeFile,readFile,rm}=await import('node:fs/promises');
+ const root=await mkdtemp(join(tmpdir(),'social-backup-corrupt-'));
+ await writeFile(join(root,'accounts.json'),'broken-original');
+ const app=await harness(undefined,root);t.after(async()=>{await app.dispose();await rm(root,{recursive:true,force:true});});
+ const response=await app.call('backup',{});assert.equal(response.status,500);
+ assert.ok((await response.json()).error);
+ assert.equal(await readFile(join(root,'accounts.json'),'utf8'),'broken-original');
+});

@@ -3,7 +3,7 @@ import {randomUUID} from 'node:crypto';
 import {homedir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {readFile} from 'node:fs/promises';
-import {PLATFORMS,emptyState,profileURL,normalizeSnapshot,applySnapshot,platformSettings,unbindAccount} from '../src/core.mjs';
+import {PLATFORMS,emptyState,validateState,profileURL,normalizeSnapshot,applySnapshot,platformSettings,unbindAccount} from '../src/core.mjs';
 import {PLATFORM_DEFINITIONS} from '../src/platforms.mjs';
 import {loadState,saveState} from '../src/store.mjs';
 import {runBrowser} from '../src/browser-runner.mjs';
@@ -123,7 +123,25 @@ export function apply(ctx,config) {
     }finally{ticking=false;}
   }
   const timer=setInterval(()=>void tick().catch(()=>{}),1000);timer.unref?.();
-  register('state','GET',async()=>{await ready;return loadError?json({error:loadError},500):json({...state,platforms:PLATFORM_DEFINITIONS.map(({id,label,color,metrics})=>({id,label,color,metrics})),sync:{...sync,running:!!active||queue.length>0},syncByPlatform,environment:{...environment,checking},browserConnection:bridge?.status()||{available:false,paired:false,online:false,error:bridgeError}});});
+  register('state','GET',async()=>{await ready;return loadError?json({error:loadError},500):json({...state,storage:{path:root},platforms:PLATFORM_DEFINITIONS.map(({id,label,color,metrics})=>({id,label,color,metrics})),sync:{...sync,running:!!active||queue.length>0},syncByPlatform,environment:{...environment,checking},browserConnection:bridge?.status()||{available:false,paired:false,online:false,error:bridgeError}});});
+  register('backup','POST',async request=>{
+    await ready;
+    if(disposed)return json({error:'工作台正在退出，请重新打开后备份。'},503);
+    if(loadError)return json({error:loadError},500);
+    try{
+      await body(request);
+      // Wait for writes already queued, then serialize a single committed snapshot.
+      // Never enumerate the directory: credentials, locks and old backups stay local.
+      await commit;
+      if(disposed||loadError)throw Error('当前数据暂不可备份，请稍后重试。');
+      const snapshot={version:state.version,accounts:state.accounts,archives:state.archives,settings:state.settings};
+      validateState(snapshot);
+      return new Response(JSON.stringify(snapshot,null,2)+'\n',{headers:{
+        'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',
+        'Content-Disposition':`attachment; filename="personal-social-backup-${new Date().toISOString().replace(/[:.]/g,'-')}.json"`,
+      }});
+    }catch{return json({error:'备份未生成，已有数据未修改，请稍后重试。'},500);}
+  });
   register('settings','POST',async request=>{
     await ready;try{
       const data=await body(request);if(disposed)throw Error('工作台正在退出');

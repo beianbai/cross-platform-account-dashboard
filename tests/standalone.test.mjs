@@ -109,3 +109,23 @@ test('chunked body limit cannot be bypassed without Content-Length', async t => 
   });
   assert.equal(status, 413);
 });
+
+test('storage location and backups require login; backup excludes local credentials', async t => {
+  const app = await setup(t);
+  assert.equal((await fetch(app.url + api + 'backup', {method:'POST',headers:{Origin:app.url,'Content-Type':'application/json'},body:'{}'})).status, 401);
+  const auth = await login(app);
+  assert.equal((await call(app, auth, 'backup', {}, {'X-CSRF-Token':''})).status, 403);
+  const state = await (await call(app, auth, 'state')).json();
+  assert.equal(state.storage.path, app.root);
+  await call(app, auth, 'settings', {provider:'browser'});
+  const credential = await readFile(join(app.root, 'standalone-session.json'), 'utf8');
+  const response = await call(app, auth, 'backup', {});
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-disposition'), /attachment; filename="personal-social-backup-.*\.json"/);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  const backup = await response.json();
+  assert.deepEqual(Object.keys(backup).sort(), ['accounts','archives','settings','version']);
+  assert.equal(backup.settings.provider, 'browser');
+  assert.ok(!JSON.stringify(backup).includes(JSON.parse(credential).secret));
+  assert.equal(await readFile(join(app.root, 'standalone-session.json'), 'utf8'), credential);
+});
