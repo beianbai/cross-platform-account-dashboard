@@ -5,6 +5,25 @@ window.__ModuleLoader__.load({
     const React = require("react"),
       h = React.createElement;
     const FEEDBACK_URL = "https://my.feishu.cn/share/base/shrcn3QhjgppqaD3vnhVP4KUWXf";
+    const GITHUB_URL = "https://github.com/beianbai/cross-platform-account-dashboard";
+    // User-facing history travels with the installed client; no remote fetch or auto-update.
+    const releaseNotes = [
+      { version: "0.6.6", date: "2026-10-17", items: [["优化", "日常同步保存账号指标和当前已加载作品后即可完成，不再等待全部历史读完。"], ["优化", "补齐历史独立操作，保留历史断点与已有作品；读取或保存失败仍明确提示。"]] },
+      { version: "0.6.5", date: "2026-10-17", items: [["修复", "返回总览与更新记录按钮的悬停留白。"], ["修复", "抖音零作品被误判为列表尚未加载。"], ["优化", "区分账号数据已更新与历史范围待确认，未知总数时展示已收录数量。"]] },
+      { version: "0.6.4", date: "2026-10-17", items: [["新增", "设置中可查看、复制本机存储路径，并下载业务数据备份。"], ["新增", "备份范围和手动恢复说明，帮助保管账号与历史记录。"]] },
+      { version: "0.6.3", date: "2026-10-17", items: [
+        ["新增", "在设置中查看更新记录，顶栏可直接打开 GitHub 项目。"],
+        ["优化", "帮助与反馈移到设置底部，返回入口移至顶栏左侧。"],
+        ["优化", "回到顶部按钮更易辨认，长页面操作结果始终显示在可视区域。"],
+        ["新增", "飞书意见反馈与诊断信息预览，可自主选择复制和提交。"],
+        ["优化", "连接方式说明更清晰，自动选择规则一目了然。"] ] },
+      { version: "0.6.2", date: "2026-10-12", items: [["优化", "精简 Desktop 安装包，保留完整看板与浏览器连接器。"]] },
+      { version: "0.6.1", date: "2026-10-12", items: [["修复", "账号卡片的高度与指标分隔线对齐。"], ["优化", "支持浅色、深色与跟随系统，并记住外观选择。"]] },
+      { version: "0.6.0", date: "2026-10-12", items: [["新增", "累计保存作品，支持补齐历史与后续增量同步。"], ["新增", "同步可暂停和继续，已保存进度不会因中断丢失。"], ["优化", "作品分页展示，并标明历史范围与同步进度。"]] },
+      { version: "0.5.1", date: "2026-10-11", items: [["新增", "四步上手指南，可收起、跳过或重新查看。"], ["优化", "更清楚地说明作品保存范围与采集限制。"]] },
+      { version: "0.5.0", date: "2026-10-11", items: [["新增", "提供可独立运行的工作台。"], ["优化", "支持浅色与深色界面，点击账号卡片即可进入详情。"], ["优化", "操作成功提示自动收起，停留查看时暂停倒计时。"]] },
+      { version: "0.4.0", date: "本地基线", items: [["新增", "跨平台账号看板、定时同步、每日趋势和历史档案。"]] },
+    ];
     const appVersion = typeof __PSW_VERSION__ === "string" ? __PSW_VERSION__ : "开发预览（未构建）";
     const runtimeMode = typeof __PSW_RUNTIME__ === "string" ? __PSW_RUNTIME__ : "开发预览";
     const providerNames = { auto: "自动选择", browser: "浏览器扩展", ego: "Ego Lite 专用连接" };
@@ -51,6 +70,12 @@ window.__ModuleLoader__.load({
             hour12: false,
           })
         : "尚无记录";
+    const collectedFallback = (account, key) => key === "workCount" && account?.workCount == null && account?.works?.length > 0;
+    const collectedLabel = account => account?.platform === "xiaohongshu" ? "已收录笔记" : "已收录作品";
+    const unconfirmedHistory = (status, account) => status?.phase === "partial" || status?.phase === "paused" && ["no_progress", "no_pagination_evidence", "category_not_ready"].includes(account?.workSync?.reason);
+    const historyExplanation = account => account?.workSync?.reason === "category_not_ready"
+      ? "账号数据已更新，作品列表尚未就绪，可稍后重试。"
+      : "账号数据已更新，历史范围尚未确认。页面没有提供明确的列表末尾，已读取的作品均已保存。";
     const accountData = a => JSON.stringify([a?.name, a?.accountId, a?.avatar, a?.bio, a?.fans, a?.following, a?.workCount, a?.likes, a?.works, a?.coverage, a?.workCollection, a?.workLibrary, a?.workSync]);
     const metric = (v) =>
       v?.display ??
@@ -270,6 +295,7 @@ window.__ModuleLoader__.load({
     function Icon({ name, size = 18, ...props }) {
       const paths = {
         plus: "M12 5v14M5 12h14",
+        top: "M5 4h14M12 20V9m-5 5 5-5 5 5",
         back: "m14 6-6 6 6 6M8 12h12",
         arrow: "M5 12h14m-5-5 5 5-5 5",
         external:
@@ -291,6 +317,7 @@ window.__ModuleLoader__.load({
         alert: "M12 8v5m0 3h.01M12 3 2 21h20Z",
         eye: "M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12",
         archive: "M3 4h18v4H3zM5 8v12h14V8M9 12h6",
+        download: "M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5",
       };
       return h(
         "svg",
@@ -396,9 +423,9 @@ window.__ModuleLoader__.load({
 .psw .psw-account{display:flex;align-items:center;gap:10px;min-width:0}.psw .psw-card .psw-account{margin-top:18px}.psw .psw-avatar{width:37px;height:37px;border-radius:50%;object-fit:cover;background:linear-gradient(130deg,#39505a,#26343c);color:#c4e7e9;display:grid;place-items:center;font-size:15px;flex-shrink:0;border:1px solid #52717b50}.psw .psw-account>div{min-width:0}.psw .psw-account h3{font-size:15px;overflow-wrap:anywhere;line-height:1.4}.psw .psw-account small{display:block;color:var(--muted);margin-top:3px;font-size:11px}.psw .psw-mainmetric{display:flex;justify-content:space-between;gap:14px;margin-top:18px;align-items:center}.psw .psw-big{font-family:ui-sans-serif,-apple-system,sans-serif;font-size:38px;line-height:1.1;letter-spacing:-1.6px;font-weight:580;font-variant-numeric:tabular-nums;display:block}.psw .psw-metriclabel{display:block;color:var(--muted);font-size:12px;margin-bottom:6px}.psw .psw-delta{display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap;color:var(--green);font-size:12px;margin-top:7px}.psw .psw-delta.negative{color:var(--danger)}.psw .psw-delta small{color:var(--muted);font-size:11px}.psw .psw-spark{width:40%;max-width:180px}.psw .psw-spark svg{width:100%;height:55px;display:block}.psw .psw-spark span{font-size:11px;color:var(--muted);display:block;text-align:right;margin-top:5px}.psw .psw-accumulation{display:grid;justify-items:end;gap:4px;color:var(--muted);padding:12px 0 6px 12px;max-width:47%;text-align:right;background-image:radial-gradient(#9fbfcd20 .8px,transparent .8px);background-size:8px 8px}.psw .psw-accumulation svg{color:#8faebc;margin-bottom:3px}.psw .psw-accumulation strong{font-size:12px;font-weight:500;color:#bccbd5;background:var(--card)}.psw .psw-accumulation span{font-size:11px;background:var(--card)}
 .psw .psw-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:14px 0;margin-top:16px;border-top:1px solid var(--line)}.psw .psw-stats b{font-weight:550;font-size:18px;font-variant-numeric:tabular-nums;letter-spacing:-.25px}.psw .psw-stats span{color:var(--muted);font-size:11px;display:block;margin-top:2px}.psw .psw-card-delta{display:flex;min-height:26px}.psw .psw-cardfooter{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:9px;border-top:1px solid var(--line)}.psw .psw-cardfooter small{font-size:11px;color:var(--muted)}.psw .psw-cardfooter button{min-height:40px;font-size:12px;padding:8px}.psw .psw-cardfooter .psw-actions{gap:2px}.psw .psw-cardfooter .psw-icon-button{width:40px}.psw .psw-note{font-size:12px;color:var(--muted);margin-top:20px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .psw .psw-notice{padding:13px 16px;border:1px solid #59604c;background:#282c25;border-radius:10px;display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px;font-size:13px;overflow-wrap:anywhere;color:#e1dfc4}.psw .psw-notice p{margin-top:4px;color:#c9c9b8}.psw .psw-notice.error{color:var(--danger);border-color:#795047;background:#332421}.psw .psw-empty{padding:54px 25px;text-align:center;border:1px dashed #40515f;border-radius:14px;max-width:760px;margin:25px auto;background:linear-gradient(150deg,#202c35aa,#19212980)}.psw .psw-empty-art{margin:0 auto 22px;color:var(--accent);width:90px;height:72px}.psw .psw-empty p{color:var(--muted);max-width:340px;margin:12px auto 24px}.psw .psw-feedback{font-size:12px;color:var(--green);margin-top:12px}.psw .psw-result{display:flex;align-items:center;gap:9px;padding:7px 10px 7px 14px;margin:0 0 18px;border-radius:9px;background:#19312c;border:1px solid #396455;animation:psw-result .24s var(--ease)}.psw .psw-result>span{flex:1}.psw .psw-result button{color:var(--green);min-height:34px;height:34px;width:34px}
-.psw .psw-detail-head{margin:22px 0 26px;display:flex;align-items:center;justify-content:space-between;gap:20px}.psw .psw-detail-head .psw-avatar{width:55px;height:55px;font-size:23px}.psw .psw-detail-head .psw-account h3{font-size:22px}.psw .psw-bio{margin-top:8px;color:var(--muted);max-width:650px;overflow-wrap:anywhere}.psw .psw-metric-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card);margin-bottom:18px}.psw .psw-metric-tabs button{display:block;text-align:left;min-height:92px;border-radius:0;border:0;border-right:1px solid var(--line);padding:17px 20px;position:relative}.psw .psw-metric-tabs button:last-child{border-right:0}.psw .psw-metric-tabs button[aria-pressed=true]{background:linear-gradient(145deg,#254245,#213238)}.psw .psw-metric-tabs button[aria-pressed=true]:after{position:absolute;bottom:0;left:0;right:0;height:2px;background:var(--accent);content:''}.psw .psw-metric-tabs b{font-size:25px;display:block;font-weight:580;font-variant-numeric:tabular-nums}.psw .psw-chart-panel{padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--card)}.psw .psw-segment{display:flex;gap:3px;padding:3px;border-radius:8px;background:#10171e;border:1px solid #303c48}.psw .psw-segment button{padding:6px 12px;font-size:12px;min-height:34px;border:0;background:transparent;border-radius:5px;color:var(--muted)}.psw .psw-segment button[aria-pressed=true]{background:#30424a;color:var(--accent);box-shadow:0 1px 5px #00000020}.psw .psw-chart-summary{margin-top:18px;min-height:25px;display:flex;gap:10px;align-items:center;font-size:12px;color:var(--muted)}.psw .psw-chart-summary strong{font-size:15px;color:var(--ink);font-variant-numeric:tabular-nums}.psw .psw-chart{width:100%;height:250px;display:block;overflow:visible;animation:psw-chart .28s var(--ease)}.psw .psw-chart text,.psw .psw-delta-chart text{font:11px -apple-system,sans-serif;fill:var(--muted)}.psw .psw-chart circle{cursor:pointer;transition:r .12s}.psw .psw-chart circle:hover,.psw .psw-chart circle:focus{r:6}.psw .psw-chart-empty{min-height:160px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--muted)}.psw .psw-chart-empty svg{color:var(--accent)}.psw .psw-daily-chart{border-top:1px solid var(--line);margin-top:22px;padding-top:18px}.psw .psw-delta-chart{width:100%;height:160px;display:block;margin-top:10px}.psw .psw-delta-chart rect{cursor:pointer;transition:opacity .15s}.psw .psw-delta-chart rect:hover,.psw .psw-delta-chart rect:focus{opacity:.75}
+.psw .psw-detail-head{margin:22px 0 26px;display:flex;align-items:center;justify-content:space-between;gap:20px}.psw .psw-detail-head .psw-avatar{width:55px;height:55px;font-size:23px}.psw .psw-detail-head .psw-account h3{font-size:22px}.psw .psw-bio{margin-top:8px;color:var(--muted);max-width:650px;overflow-wrap:anywhere}.psw .psw-metric-tabs button:disabled{opacity:1;cursor:default}.psw .psw-metric-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card);margin-bottom:18px}.psw .psw-metric-tabs button{display:block;text-align:left;min-height:92px;border-radius:0;border:0;border-right:1px solid var(--line);padding:17px 20px;position:relative}.psw .psw-metric-tabs button:last-child{border-right:0}.psw .psw-metric-tabs button[aria-pressed=true]{background:linear-gradient(145deg,#254245,#213238)}.psw .psw-metric-tabs button[aria-pressed=true]:after{position:absolute;bottom:0;left:0;right:0;height:2px;background:var(--accent);content:''}.psw .psw-metric-tabs b{font-size:25px;display:block;font-weight:580;font-variant-numeric:tabular-nums}.psw .psw-chart-panel{padding:24px;border:1px solid var(--line);border-radius:14px;background:var(--card)}.psw .psw-segment{display:flex;gap:3px;padding:3px;border-radius:8px;background:#10171e;border:1px solid #303c48}.psw .psw-segment button{padding:6px 12px;font-size:12px;min-height:34px;border:0;background:transparent;border-radius:5px;color:var(--muted)}.psw .psw-segment button[aria-pressed=true]{background:#30424a;color:var(--accent);box-shadow:0 1px 5px #00000020}.psw .psw-chart-summary{margin-top:18px;min-height:25px;display:flex;gap:10px;align-items:center;font-size:12px;color:var(--muted)}.psw .psw-chart-summary strong{font-size:15px;color:var(--ink);font-variant-numeric:tabular-nums}.psw .psw-chart{width:100%;height:250px;display:block;overflow:visible;animation:psw-chart .28s var(--ease)}.psw .psw-chart text,.psw .psw-delta-chart text{font:11px -apple-system,sans-serif;fill:var(--muted)}.psw .psw-chart circle{cursor:pointer;transition:r .12s}.psw .psw-chart circle:hover,.psw .psw-chart circle:focus{r:6}.psw .psw-chart-empty{min-height:160px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--muted)}.psw .psw-chart-empty svg{color:var(--accent)}.psw .psw-daily-chart{border-top:1px solid var(--line);margin-top:22px;padding-top:18px}.psw .psw-delta-chart{width:100%;height:160px;display:block;margin-top:10px}.psw .psw-delta-chart rect{cursor:pointer;transition:opacity .15s}.psw .psw-delta-chart rect:hover,.psw .psw-delta-chart rect:focus{opacity:.75}
 .psw details{margin-top:12px}.psw summary{cursor:pointer;color:var(--muted);font-size:12px;padding:8px 0}.psw .psw-table-scroll{max-height:240px;overflow:auto;margin-top:8px}.psw table{border-collapse:collapse;width:100%;font-size:12px;text-align:left;font-variant-numeric:tabular-nums}.psw th,.psw td{padding:9px 12px;border-bottom:1px solid var(--line)}.psw th{font-weight:550;color:var(--muted);position:sticky;top:0;background:var(--card)}.psw .psw-section{margin-top:28px}.psw .psw-works{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:17px;margin-top:18px}.psw .psw-work{min-width:0;border-bottom:1px solid var(--line);padding-bottom:16px}.psw .psw-cover{height:165px;border-radius:10px;background:var(--soft);overflow:hidden;margin-bottom:12px;display:grid;place-items:center;color:var(--muted)}.psw .psw-cover img{width:100%;height:100%;object-fit:cover;transition:transform .35s var(--ease)}.psw .psw-work a:hover img{transform:scale(1.025)}.psw .psw-work h3{font-size:14px;font-weight:550;margin:6px 0;overflow-wrap:anywhere}.psw .psw-work a{color:var(--ink)}.psw .psw-work small{font-size:11px;color:var(--muted)}.psw .psw-coverage{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:18px}.psw .psw-coverage>div{display:grid;gap:5px;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--card)}.psw .psw-coverage strong{font-size:13px}.psw .psw-coverage span,.psw .psw-coverage small{font-size:12px}.psw .psw-work-filters{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.psw .psw-work-filters button{font-size:12px;padding:6px 14px;min-height:38px}.psw .psw-work-filters button[aria-pressed=true]{color:var(--accent);background:#244044;border-color:#527f80}
-.psw .psw-settings{max-width:980px}.psw .psw-setting-block{border-top:1px solid var(--line);padding:24px 0}.psw .psw-setting-grid{display:grid;grid-template-columns:180px minmax(0,1fr);gap:28px}.psw .psw-setting-body{min-width:0}.psw .psw-setting-body>p{color:var(--muted);font-size:12px;margin:7px 0}.psw .psw-field{display:block;font-size:12px;font-weight:550;margin:15px 0 0;color:#cbd6df}.psw input:not([type=checkbox]),.psw select,.psw textarea{width:100%;border:1px solid #42505e;border-radius:8px;min-height:44px;background:#131b22;padding:10px 12px;color:var(--ink);margin-top:7px;min-width:0;transition:border-color .16s,box-shadow .16s}.psw input::placeholder,.psw textarea::placeholder{color:#8695a2}.psw input:hover:not(:disabled),.psw select:hover:not(:disabled),.psw textarea:hover{border-color:#69828f}.psw input[aria-invalid=true]{border-color:var(--danger)}.psw .psw-field-error{display:block;color:var(--danger);font-size:12px;font-weight:400;margin-top:6px}.psw textarea{resize:vertical;line-height:1.6}.psw .psw-formrow{display:grid;grid-template-columns:1fr 1fr;gap:14px}.psw .psw-check{display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;min-height:32px}.psw input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent);flex-shrink:0}.psw .psw-toggle-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0}.psw .psw-toggle-row+.psw-toggle-row{border-top:1px solid var(--line)}.psw .psw-schedule{margin:10px 0 18px;padding:0 18px 18px;border:1px solid var(--line);border-radius:10px;background:#121b22}.psw .psw-runtime{font-size:12px;display:grid;grid-template-columns:1fr 1fr;gap:12px;color:var(--muted);margin-top:16px}.psw .psw-runtime b{display:block;font-weight:450;color:var(--ink);margin-top:3px}.psw .psw-platformsetting{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:22px;margin-bottom:16px}.psw .psw-platformsetting .psw-card-top{margin-bottom:12px}.psw .psw-hidden{font-size:11px;background:var(--soft);color:var(--muted);padding:3px 8px;border-radius:4px}.psw .psw-timezone{position:relative}.psw .psw-zone-hint{display:flex;align-items:center;justify-content:space-between;gap:6px;color:var(--muted);font-size:11px;flex-wrap:wrap;margin-top:5px}.psw .psw-zone-hint button{font-size:11px;min-height:32px;padding:4px 6px;color:var(--accent)}.psw .psw-zone-options{position:absolute;top:72px;left:0;right:0;max-height:240px;overflow:auto;z-index:5;padding:6px;background:#202c36;border:1px solid #607786;border-radius:10px;box-shadow:0 15px 35px #0008}.psw .psw-zone-options button{width:100%;text-align:left;justify-content:flex-start;border:0;background:transparent;white-space:normal;font-size:12px;padding:10px;min-height:42px}.psw .psw-zone-options button[aria-selected=true]{background:#35565b;color:#ddfffb}.psw .psw-zone-options p{font-size:12px;padding:12px;color:var(--muted)}.psw .psw-archive-row{display:flex;align-items:center;gap:12px;padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--card);margin-bottom:10px}.psw .psw-archive-info{display:grid;gap:3px;flex:1;min-width:0}.psw .psw-archive-info strong{font-size:13px;font-weight:550}.psw .psw-archive-info span{font-size:12px;overflow-wrap:anywhere}.psw .psw-archive-info small{font-size:11px;color:var(--muted)}
+.psw .psw-settings{max-width:980px}.psw .psw-setting-block{border-top:1px solid var(--line);padding:24px 0}.psw .psw-setting-grid{display:grid;grid-template-columns:180px minmax(0,1fr);gap:28px}.psw .psw-setting-body{min-width:0}.psw .psw-storage-path{display:block;white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,monospace;font-size:12px;overflow-wrap:anywhere;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--field);color:var(--ink);margin-top:7px;user-select:text}.psw .psw-storage-actions{margin-top:12px;flex-wrap:wrap}.psw .psw-storage-help{font-size:12px;color:var(--muted);margin-top:16px;line-height:1.7}.psw .psw-storage-help summary{cursor:pointer;color:var(--ink);min-height:36px;padding:6px 0}.psw .psw-storage-help ol{padding-left:20px}.psw .psw-storage-help li+li{margin-top:6px}.psw .psw-setting-body>p{color:var(--muted);font-size:12px;margin:7px 0}.psw .psw-field{display:block;font-size:12px;font-weight:550;margin:15px 0 0;color:#cbd6df}.psw input:not([type=checkbox]),.psw select,.psw textarea{width:100%;border:1px solid #42505e;border-radius:8px;min-height:44px;background:#131b22;padding:10px 12px;color:var(--ink);margin-top:7px;min-width:0;transition:border-color .16s,box-shadow .16s}.psw input::placeholder,.psw textarea::placeholder{color:#8695a2}.psw input:hover:not(:disabled),.psw select:hover:not(:disabled),.psw textarea:hover{border-color:#69828f}.psw input[aria-invalid=true]{border-color:var(--danger)}.psw .psw-field-error{display:block;color:var(--danger);font-size:12px;font-weight:400;margin-top:6px}.psw textarea{resize:vertical;line-height:1.6}.psw .psw-formrow{display:grid;grid-template-columns:1fr 1fr;gap:14px}.psw .psw-check{display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;min-height:32px}.psw input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent);flex-shrink:0}.psw .psw-toggle-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0}.psw .psw-toggle-row+.psw-toggle-row{border-top:1px solid var(--line)}.psw .psw-schedule{margin:10px 0 18px;padding:0 18px 18px;border:1px solid var(--line);border-radius:10px;background:#121b22}.psw .psw-runtime{font-size:12px;display:grid;grid-template-columns:1fr 1fr;gap:12px;color:var(--muted);margin-top:16px}.psw .psw-runtime b{display:block;font-weight:450;color:var(--ink);margin-top:3px}.psw .psw-platformsetting{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:22px;margin-bottom:16px}.psw .psw-platformsetting .psw-card-top{margin-bottom:12px}.psw .psw-hidden{font-size:11px;background:var(--soft);color:var(--muted);padding:3px 8px;border-radius:4px}.psw .psw-timezone{position:relative}.psw .psw-zone-hint{display:flex;align-items:center;justify-content:space-between;gap:6px;color:var(--muted);font-size:11px;flex-wrap:wrap;margin-top:5px}.psw .psw-zone-hint button{font-size:11px;min-height:32px;padding:4px 6px;color:var(--accent)}.psw .psw-zone-options{position:absolute;top:72px;left:0;right:0;max-height:240px;overflow:auto;z-index:5;padding:6px;background:#202c36;border:1px solid #607786;border-radius:10px;box-shadow:0 15px 35px #0008}.psw .psw-zone-options button{width:100%;text-align:left;justify-content:flex-start;border:0;background:transparent;white-space:normal;font-size:12px;padding:10px;min-height:42px}.psw .psw-zone-options button[aria-selected=true]{background:#35565b;color:#ddfffb}.psw .psw-zone-options p{font-size:12px;padding:12px;color:var(--muted)}.psw .psw-archive-row{display:flex;align-items:center;gap:12px;padding:16px;border:1px solid var(--line);border-radius:10px;background:var(--card);margin-bottom:10px}.psw .psw-archive-info{display:grid;gap:3px;flex:1;min-width:0}.psw .psw-archive-info strong{font-size:13px;font-weight:550}.psw .psw-archive-info span{font-size:12px;overflow-wrap:anywhere}.psw .psw-archive-info small{font-size:11px;color:var(--muted)}
 .psw .psw-dialog{color:var(--ink);width:min(620px,100%);max-height:100%;margin:auto;flex-shrink:0;padding:0;background:linear-gradient(150deg,#23303aea,#192129f5);backdrop-filter:blur(24px);border:1px solid #58707c80;border-radius:16px;box-shadow:0 25px 100px #0008,inset 0 1px #ffffff0a;overflow:auto;animation:psw-dialog .22s var(--ease)}.psw .psw-modal-overlay{position:absolute;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;padding:24px 16px;background:#050a10aa;backdrop-filter:blur(5px);overflow:hidden}.psw .psw-dialoghead{padding:18px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#202b35f2;backdrop-filter:blur(14px);z-index:6}.psw .psw-dialogbody{padding:22px 24px 26px}.psw .psw-dialogbody>p{color:var(--muted);font-size:13px;margin-bottom:18px}.psw .psw-options{display:grid;grid-template-columns:1fr 1fr;gap:12px}.psw .psw-option{padding:17px 15px;justify-content:flex-start;gap:12px;font-weight:550;min-height:72px;background:#19232c}.psw .psw-option .psw-muted{margin-left:auto;font-size:11px}.psw .psw-developer{display:flex;align-items:center;gap:12px;width:100%;margin-top:18px;text-align:left;border-top:1px solid var(--line);border-radius:0;padding-top:18px}.psw .psw-developer small{display:block;font-size:11px;color:var(--muted);font-weight:400;margin-top:3px;white-space:normal}.psw .psw-dialogfooter{display:flex;gap:10px;justify-content:flex-end;margin-top:24px;flex-wrap:wrap}.psw .psw-instructions{padding-left:20px;font-size:13px;color:var(--muted)}.psw .psw-instructions li{margin-bottom:12px}.psw .psw-pair{font-family:monospace!important;font-size:12px!important;word-break:break-all}.psw .psw-prompt{font-size:12px!important;min-height:235px}.psw .psw-loading{padding:70px 20px;text-align:center;color:var(--muted)}
 .psw .psw-spin{animation:psw-spin 1.2s linear infinite}@keyframes psw-spin{to{transform:rotate(360deg)}}@keyframes psw-scan{from{transform:translateX(-110%)}to{transform:translateX(330%)}}@keyframes psw-dialog{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}@keyframes psw-result{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}@keyframes psw-chart{from{opacity:.4}to{opacity:1}}@keyframes psw-complete{0%{border-color:#93dbb8;background:#93dbb814}100%{border-color:transparent;background:transparent}}
 
@@ -421,6 +448,13 @@ window.__ModuleLoader__.load({
 @container(max-width:740px){.psw .psw-guide-steps{grid-template-columns:repeat(2,minmax(0,1fr))}.psw .psw-guide-steps li{display:flex;align-items:center;gap:10px}.psw .psw-guide-art{margin:0}.psw .psw-guide-next{align-items:flex-start;flex-direction:column;gap:14px}}
 @container(max-width:520px){.psw .psw-pagehead{flex-wrap:wrap}.psw .psw-onboarding{padding:16px}.psw .psw-guide-head{gap:6px}.psw .psw-guide-head h2{font-size:17px}.psw .psw-guide-head .psw-actions{gap:0}.psw .psw-guide-steps{grid-template-columns:1fr;gap:8px;margin:16px 0}.psw .psw-guide-steps li{padding:10px 12px}.psw .psw-guide-art{width:58px;height:45px}.psw .psw-guide-steps small{margin-top:3px}.psw .psw-home-actions{flex-wrap:wrap;justify-content:flex-end;gap:2px}.psw .psw-guide-next button{width:100%}}
 @media(prefers-reduced-motion:reduce){.psw *{animation:none!important;transition:none!important}.psw button:active:not(:disabled),.psw .psw-card:hover,.psw .psw-work a:hover img{transform:none}.psw .psw-card.is-syncing:before{width:100%;background:var(--accent);opacity:.5}}
+
+.psw .psw-header-context{display:flex;align-items:center;gap:16px;min-width:0}.psw .psw-header-back{padding:8px 12px;min-height:44px;white-space:nowrap;color:var(--ink)}.psw .psw-header-divider{width:1px;height:18px;background:var(--line);flex-shrink:0}.psw .psw-header-title{font-size:13px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.psw .psw-github{display:grid;place-items:center;flex-shrink:0;width:44px;height:44px;color:var(--muted);border-radius:50%;text-decoration:none;transition:color .16s,background .16s}.psw .psw-github:hover{background:var(--soft);color:var(--ink)}.psw .psw-github:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.psw .psw-back-top{display:grid;place-items:center;width:48px;height:48px;min-height:48px;padding:0;border-radius:50%;background:var(--accent);border:1px solid var(--accent);color:#fff;box-shadow:0 5px 18px #3046af35;transition:background .16s,box-shadow .16s,transform .16s}.psw .psw-back-top:hover:not(:disabled){background:var(--accent-hover);border-color:var(--accent-hover);box-shadow:0 7px 22px #3046af45;transform:translateY(-2px)}.psw[data-theme=dark] .psw-back-top{color:#18213c}.psw .psw-top-tooltip{position:absolute;right:calc(100% + 10px);white-space:nowrap;background:var(--ink);color:var(--card);font-size:12px;line-height:1.4;padding:7px 10px;border-radius:7px;opacity:0;pointer-events:none;transition:opacity .12s}.psw .psw-back-top:hover .psw-top-tooltip,.psw .psw-back-top:focus-visible .psw-top-tooltip{opacity:1}
+.psw .psw-version-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding-top:16px;margin-top:18px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}.psw .psw-release-trigger{font-size:12px;min-height:44px;padding:6px 12px;color:var(--muted)}.psw .psw-release-trigger:hover{color:var(--accent)}.psw .psw-release{padding:0 0 24px;margin-bottom:24px;border-bottom:1px solid var(--line)}.psw .psw-release:last-child{padding-bottom:0;margin-bottom:0;border-bottom:0}.psw .psw-release-heading{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:15px}.psw .psw-release-heading h3{margin:0;font-size:17px;font-variant-numeric:tabular-nums}.psw .psw-current-version{color:var(--accent);background:var(--accent-soft);border-radius:5px;padding:3px 7px;font-size:11px}.psw .psw-release-date{margin-left:auto;font-size:12px;color:var(--muted)}.psw .psw-release ul{padding:0;margin:0;list-style:none;display:grid;gap:12px}.psw .psw-release li{display:flex;align-items:baseline;gap:12px;font-size:13px;line-height:1.7}.psw .psw-release-kind{flex-shrink:0;font-size:11px;color:var(--muted)}
+@container(max-width:740px){.psw .psw-header-context{gap:12px}.psw .psw-top-actions .psw-connection>span:last-child{display:none}.psw .psw-top-actions .psw-connection{min-width:44px}.psw .psw-header-back{font-size:12px}}
+@container(max-width:520px){.psw .psw-header-context{width:100%;min-height:40px}.psw .psw-header-back{min-height:40px}.psw .psw-top-actions{justify-content:flex-end}.psw .psw-back-top{right:20px;bottom:20px}.psw main{padding-bottom:88px}}
+@media(prefers-reduced-motion:reduce){.psw .psw-back-top,.psw .psw-top-tooltip{transition:none}.psw .psw-back-top:hover:not(:disabled){transform:none}}
 `;
     async function api(path, body) {
       const response = await fetch(
@@ -865,7 +899,7 @@ window.__ModuleLoader__.load({
         ),
       );
     }
-    function Modal({ title, onClose, notification, children }) {
+    function Modal({ title, onClose, notification, scrollLabel, children }) {
       const ref = React.useRef(null), closing = React.useRef(false);
       function close() {
         if (closing.current) return;
@@ -950,7 +984,7 @@ window.__ModuleLoader__.load({
             ),
           ),
           notification,
-          h("div", { className: "psw-dialogbody" }, children),
+          h("div", { className: "psw-dialogbody", tabIndex: scrollLabel ? 0 : undefined, role: scrollLabel ? "region" : undefined, "aria-label": scrollLabel }, children),
         ),
       );
     }
@@ -1346,6 +1380,58 @@ window.__ModuleLoader__.load({
           ),
       );
     }
+    function StorageSettings({ storage, onNotice }) {
+      const [busy, setBusy] = React.useState(false), [failure, setFailure] = React.useState("");
+      const downloading = React.useRef(false), pathRef = React.useRef(null);
+      const path = storage?.path || "";
+      async function copyPath() {
+        try { await navigator.clipboard.writeText(path); setFailure(""); onNotice("存储路径已复制。"); }
+        catch { pathRef.current?.focus(); const selection = window.getSelection(), range = document.createRange(); if (selection && pathRef.current) { range.selectNodeContents(pathRef.current); selection.removeAllRanges(); selection.addRange(range); } setFailure("无法自动复制，请复制已选中的存储路径。"); }
+      }
+      async function downloadBackup() {
+        if (downloading.current) return;
+        downloading.current = true; setBusy(true); setFailure("");
+        try {
+          const response = await fetch(new URL("api/personal-social/backup", document.baseURI).pathname, {
+            method: "POST", credentials: "same-origin", cache: "no-store",
+            headers: { "Content-Type": "application/json" }, body: "{}",
+          });
+          if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw Error(error.error || "备份未生成，请稍后重试。");
+          }
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob), link = document.createElement("a");
+          link.href = url;
+          link.download = /filename="([^"/\\]+)"/.exec(response.headers.get("Content-Disposition") || "")?.[1]
+            || `personal-social-backup-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+          document.body.appendChild(link);
+          try { link.click(); } finally { link.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000); }
+          onNotice("已发起备份下载，请在浏览器下载列表中确认保存。");
+        } catch (error) { setFailure(error.message || "备份下载未完成，请重试。"); }
+        finally { downloading.current = false; setBusy(false); }
+      }
+      return h("section", { className: "psw-setting-block psw-setting-grid", "aria-labelledby": "psw-storage-title" },
+        h("h2", { id: "psw-storage-title" }, "数据与存储"),
+        h("div", { className: "psw-setting-body" },
+          h("p", null, "账号、历史记录和作品库保存在这台电脑上。关闭页面不会删除数据。"),
+          h("p", { className: "psw-field", id: "psw-storage-label" }, "当前存储位置"),
+          h("code", { id: "psw-storage-path", className: "psw-storage-path", ref: pathRef, tabIndex: 0, "aria-labelledby": "psw-storage-label" },
+            path || "暂未获取到路径，请刷新；更新后可能需要重启工作台服务。"),
+          h("div", { className: "psw-actions psw-storage-actions" },
+            h("button", { type: "button", onClick: copyPath, disabled: !path }, h(Icon, { name: "copy" }), "复制路径"),
+            h("button", { type: "button", onClick: downloadBackup, disabled: busy || !path, "aria-busy": busy },
+              h(Icon, { name: "download" }), busy ? "正在生成备份…" : "下载数据备份")),
+          h("p", { className: "psw-note" }, "备份包含已保存的账号、历史记录、作品库和同步设置，不含浏览器配对或登录凭据。文件含个人数据，请妥善保管。"),
+          failure && h("p", { className: "psw-field-error", role: "alert" }, failure),
+          h("details", { className: "psw-storage-help" }, h("summary", null, "如何恢复备份"),
+            h("p", null, "目前支持手动恢复，请先停止独立服务；使用 DSH Desktop 时完整退出应用。"),
+            h("ol", null,
+              h("li", null, "在上方目录中，将现有 accounts.json 另存一份，避免覆盖唯一副本。"),
+              h("li", null, "复制下载的备份到该目录，命名为 accounts.json；保留其他文件不变。"),
+              h("li", null, "重新启动并核对账号和历史记录。备份中的同步计划也会恢复；需要时重新连接浏览器。")),
+            h("p", null, "恢复会替换当前业务数据，不会合并备份之后新增的记录。"))));
+    }
     function Panel() {
       const [state, setState] = React.useState(null),
         [error, setError] = React.useState(""),
@@ -1461,9 +1547,12 @@ window.__ModuleLoader__.load({
                 setNotice(`${label}同步成功，${unchanged ? "数据无变化。" : "最新记录已保存。"}`);
                 setHighlighted(old => ({ ...old, [id]: outcome.completedAt || outcome.jobId || Date.now() }));
                 delete manualJobs.current[id];
+              } else if (unconfirmedHistory(outcome, s.accounts[id])) {
+                setNotice(`${s.platforms?.find(p => p.id === id)?.label || id}${historyExplanation(s.accounts[id])}`, "warning");
+                delete manualJobs.current[id];
               } else if (outcome.phase === "paused") {
                 const reason = s.accounts[id]?.workSync?.reason;
-                setNotice(`${s.platforms?.find(p => p.id === id)?.label || id}已暂停 · 已保存进度 · ${reason === "legacy_connector" ? "请更新浏览器连接器后继续" : reason === "needs_login" ? "请先在浏览器登录" : reason === "needs_attention" ? "请先在浏览器完成验证" : s.accounts[id]?.workSync?.mode === "incremental" ? "可继续增量同步" : "可继续补齐历史"}`, "warning");
+                setNotice(`${s.platforms?.find(p => p.id === id)?.label || id}已暂停 · 已保存进度 · ${reason === "legacy_connector" ? "请更新浏览器连接器后继续" : reason === "needs_login" ? "请先在浏览器登录" : reason === "needs_attention" ? "请先在浏览器完成验证" : s.accounts[id]?.workSync?.mode === "refresh" ? "可重新同步" : s.accounts[id]?.workSync?.mode === "incremental" ? "可继续增量同步" : "可继续补齐历史"}`, "warning");
                 delete manualJobs.current[id];
               } else if (outcome.error || ["needs_login", "needs_attention", "connection_offline", "parse_error", "account_mismatch", "network_error", "error"].includes(outcome.phase)) {
                 if (outcome.automatic !== true) setNotice(`${s.platforms?.find(p => p.id === id)?.label || id}同步未完成：${outcome.error || outcome.lastResult || "请检查账号旁的提示后重试。"}`, ["needs_login", "needs_attention"].includes(outcome.phase) ? "warning" : "error");
@@ -1531,7 +1620,7 @@ window.__ModuleLoader__.load({
         setLocalSync(old => ({ ...old, [id]: { phase: "queued", running: true } }));
         const result = await action(path, {
           platform: id,
-          ...(path === "sync" ? { mode: options.mode || (resume ? status(id)?.progress?.mode || a?.workSync?.mode : null) || (a?.workSync?.historyComplete ? "incremental" : "history"), ...(options.restart ? { restart: true } : {}) } : {}),
+          ...(path === "sync" ? { mode: options.mode || (resume ? status(id)?.mode || status(id)?.progress?.mode || a?.workSync?.mode : null) || "refresh", ...(options.restart ? { restart: true } : {}) } : {}),
           ...(resume && status(id)?.url ? { url: status(id).url } : url && addPlatform === id ? { url } : {}),
           provider: resume && status(id)?.provider ? status(id).provider : provider,
           ...(resume ? { resume: true } : {}),
@@ -1539,7 +1628,7 @@ window.__ModuleLoader__.load({
         if (!result) { delete manualJobs.current[id]; setLocalSync(old => { const next = { ...old }; delete next[id]; return next; }); }
         return result;
       };
-      const phaseLabel = s => ({ queued: "排队中", waiting: "等待浏览器", opening: "等待浏览器", connecting: "等待浏览器", reading: "正在读取", collecting: "正在读取", needs_login: "需要登录", needs_attention: "等待处理", complete: "同步完成", paused: "已暂停 · 可继续" }[s?.phase] || (s?.running ? "正在同步" : ""));
+      const phaseLabel = (s, account) => unconfirmedHistory(s, account) ? "已更新 · 历史待确认" : ({ queued: "排队中", waiting: "等待浏览器", opening: "等待浏览器", connecting: "等待浏览器", reading: "正在读取", collecting: "正在读取", needs_login: "需要登录", needs_attention: "等待处理", complete: "同步完成", paused: "已暂停 · 可继续" }[s?.phase] || (s?.running ? "正在同步" : ""));
       const btn = (text, onClick, icon, cls = "", disabled = false) =>
         h(
           "button",
@@ -1739,7 +1828,7 @@ window.__ModuleLoader__.load({
                     name: ps(p.id).schedule?.enabled ? "clock" : "check",
                     size: 13,
                   }),
-              phaseLabel(s) || (ps(p.id).schedule?.enabled ? "自动同步" : "已绑定"),
+              phaseLabel(s, a) || (ps(p.id).schedule?.enabled ? "自动同步" : "已绑定"),
             ),
           ),
           h(
@@ -1793,8 +1882,8 @@ window.__ModuleLoader__.load({
               h(
                 "div",
                 { key },
-                h("b", null, metric(a[key])),
-                h("span", null, labels[key]),
+                h("b", { title: collectedFallback(a, key) ? "本地累计收录量，不等于平台总数" : undefined }, collectedFallback(a, key) ? String(a.works.length) : metric(a[key])),
+                h("span", null, collectedFallback(a, key) ? collectedLabel(a) : labels[key]),
               ),
             ),
           ),
@@ -1828,16 +1917,12 @@ window.__ModuleLoader__.load({
         h(
           "header",
           { className: "psw-topbar", ref: headerRef },
-          h(
-            "div",
-            { className: "psw-brand" },
-            h(
-              "span",
-              { className: "psw-mark" },
-              h(BrandMark),
-            ),
-            "跨平台账号看板",
-          ),
+          view === "overview"
+            ? h("div", { className: "psw-brand" }, h("span", { className: "psw-mark" }, h(BrandMark)), "跨平台账号看板")
+            : h("div", { className: "psw-header-context" },
+                btn("返回账号总览", back, "back", "psw-quiet psw-header-back"),
+                h("span", { className: "psw-header-divider", "aria-hidden": true }),
+                h("span", { className: "psw-header-title" }, view === "settings" ? "设置" : archived ? "历史档案" : (platform?.label || "账号") + "详情")),
           h(
             "div",
             { className: "psw-top-actions" },
@@ -1856,16 +1941,17 @@ window.__ModuleLoader__.load({
               h("span", { className: "psw-dot" + (online ? " online" : "") }),
               h("span", null, online ? "浏览器已连接" : "连接浏览器"),
             ),
-            view !== "overview" && btn("返回账号总览", back, "back", "psw-quiet psw-header-back"),
             view !== "settings" && btn("设置", goSettings, "settings", "psw-quiet psw-settings-button"),
-            btn("帮助", () => { setCopyError(""); setModal("help"); }, null, "psw-quiet psw-settings-button"),
+            h("a", { href: GITHUB_URL, target: "_blank", rel: "noopener noreferrer", className: "psw-github", "aria-label": "查看 GitHub 项目", title: "查看 GitHub 项目" },
+              h("svg", { viewBox: "0 0 24 24", width: 20, height: 20, fill: "currentColor", "aria-hidden": true },
+                h("path", { d: "M12 .75a11.25 11.25 0 0 0-3.56 21.92c.56.1.77-.24.77-.54v-2.1c-3.13.68-3.79-1.33-3.79-1.33-.51-1.3-1.25-1.65-1.25-1.65-1.03-.7.08-.69.08-.69 1.13.08 1.73 1.16 1.73 1.16 1.01 1.73 2.65 1.23 3.3.94.1-.73.4-1.23.72-1.51-2.5-.28-5.13-1.25-5.13-5.57 0-1.23.44-2.23 1.16-3.02-.12-.28-.5-1.43.11-2.98 0 0 .94-.3 3.09 1.15a10.77 10.77 0 0 1 5.62 0c2.15-1.46 3.09-1.15 3.09-1.15.61 1.55.23 2.7.11 2.98.72.79 1.15 1.79 1.15 3.02 0 4.33-2.63 5.28-5.14 5.56.4.35.76 1.03.76 2.08v3.11c0 .3.2.65.78.54A11.25 11.25 0 0 0 12 .75Z" }))),
           ),
         ),
         h("style", null, styles),
         !modal && notification,
         h(
           "main",
-          { ref: mainRef, onScroll: e => setShowTop(e.currentTarget.scrollTop >= e.currentTarget.clientHeight) },
+          { ref: mainRef, tabIndex: -1, "aria-label": "工作台内容", onScroll: e => setShowTop(e.currentTarget.scrollTop >= e.currentTarget.clientHeight) },
           h(
             "div",
             { className: "psw-wrap" },
@@ -2002,11 +2088,7 @@ window.__ModuleLoader__.load({
                         ),
                       ),
                     ),
-                    h("section", { className: "psw-setting-block psw-setting-grid" },
-                      h("h2", null, "帮助与反馈"),
-                      h("div", { className: "psw-setting-body" },
-                        h("div", { className: "psw-actions" }, feedbackLink(), btn("复制诊断信息", () => { setCopyError(""); setModal("help"); }, "copy")),
-                        h("p", { className: "psw-note" }, "先预览诊断信息，再决定是否复制到反馈表单。"))),
+                    h(StorageSettings, { storage: state.storage, onNotice: setNotice }),
                     state.archives?.length > 0 &&
                       h(
                         "section",
@@ -2025,6 +2107,13 @@ window.__ModuleLoader__.load({
                           }),
                         ),
                       ),
+                    h("section", { className: "psw-setting-block psw-setting-grid" },
+                      h("h2", null, "帮助与反馈"),
+                      h("div", { className: "psw-setting-body" },
+                        h("div", { className: "psw-actions" }, feedbackLink(), btn("查看诊断信息", () => { setCopyError(""); setModal("help"); }, "code", "psw-quiet")),
+                        h("p", { className: "psw-note" }, "遇到问题时，可查看诊断信息并按需附在反馈中。"),
+                        h("div", { className: "psw-version-row" }, h("span", null, "当前版本 ", appVersion),
+                          btn("查看更新记录", () => setModal("releases"), null, "psw-quiet psw-release-trigger")))),
                   )
                 : view === "detail" && account
                   ? h(
@@ -2073,7 +2162,7 @@ window.__ModuleLoader__.load({
                           h("button", {
                             type: "button",
                             className: "psw-primary",
-                            onClick: () => sync(selected, account.workSync?.status === "paused" || selectedSync?.phase === "paused"),
+                            onClick: () => sync(selected),
                             disabled: pending || selectedBusy,
                             "aria-busy": selectedBusy,
                           },
@@ -2098,19 +2187,21 @@ window.__ModuleLoader__.load({
                               key,
                               "aria-pressed": metricKey === key,
                               onClick: () => chooseMetric(key),
-                              title: platform?.metricInfo?.[key]?.description,
+                              disabled: collectedFallback(account, key),
+                              title: collectedFallback(account, key) ? "本地累计收录量，不等于平台总数，不用于平台趋势" : platform?.metricInfo?.[key]?.description,
                             },
                             h(
                               "span",
                               { className: "psw-metriclabel" },
-                              platform?.metricInfo?.[key]?.label ||
+                              collectedFallback(account, key) ? collectedLabel(account) : platform?.metricInfo?.[key]?.label ||
                                 labels[key] ||
                                 key,
                             ),
-                            h("b", null, metric(account[key])),
+                            h("b", null, collectedFallback(account, key) ? String(account.works.length) : metric(account[key])),
                           ),
                         ),
                       ),
+                      collectedFallback(account, "workCount") && h("p", { className: "psw-note", style: { margin: "10px 0 14px" } }, "平台未提供作品总数，当前显示本地累计收录量；可能包含已删除的旧作品，不用于平台总数趋势。"),
                       h(
                         "section",
                         { className: "psw-chart-panel" },
@@ -2158,16 +2249,17 @@ window.__ModuleLoader__.load({
                         h("p", { className: "psw-snapshot-scope" },
                           account.workSync?.historyComplete
                             ? `历史曾确认读到末尾${account.workSync.historyCompletedAt ? " · " + date(account.workSync.historyCompletedAt) : ""}。`
-                            : account.workSync ? "历史尚未补齐，已保存的作品会持续累积。" : "旧记录已纳入作品库，历史范围尚未确认。",
+                            : account.workSync ? "历史范围尚未确认，已保存的作品会持续累积。" : "旧记录已纳入作品库，历史范围尚未确认。",
                         ),
+                        !archived && h("p", { className: "psw-note", style: { marginBottom: 10 } }, "日常同步更新指标和当前已加载作品；下方操作用于扫描更多作品或补齐历史。"),
                         !archived && h("div", { className: "psw-note", role: "status", "aria-live": "polite" },
-                          h("p", null, account.workSync?.reason === "legacy_connector" || selectedSync?.reason === "legacy_connector" ? "请更新浏览器连接器后继续；已保存的作品仍保留，历史尚未补齐。" : selectedSync?.phase === "needs_login" || account.workSync?.reason === "needs_login" ? "请先在原浏览器登录，完成后继续；已保存的进度仍保留。" : selectedSync?.phase === "needs_attention" || account.workSync?.reason === "needs_attention" ? "请先在原浏览器完成验证或页面处理，再继续；已保存的进度仍保留。" : selectedBusy ? `${phaseLabel(selectedSync)} · 已保存 ${selectedSync?.progress?.saved ?? account.works?.length ?? 0} 条 · 已读取 ${selectedSync?.progress?.batches ?? 0} 批` : selectedSync?.error ? `同步未完成：${selectedSync.error} 已保存的作品和进度仍保留。` : account.workSync?.status === "paused" || selectedSync?.phase === "paused" ? account.workSync?.mode === "incremental" ? "已保存进度，等待继续增量同步。" : "已保存进度，等待继续补齐历史。" : account.workSync?.status === "incremental" ? "此次增量扫描已完成。" : account.workSync?.status === "complete" && account.workSync?.historyComplete ? "历史已读到末尾。" : "可继续补齐历史，或先更新近期作品。"),
+                          h("p", null, account.workSync?.reason === "legacy_connector" || selectedSync?.reason === "legacy_connector" ? "请更新浏览器连接器后继续；已保存的作品仍保留，历史尚未补齐。" : selectedSync?.phase === "needs_login" || account.workSync?.reason === "needs_login" ? "请先在原浏览器登录，完成后继续；已保存的进度仍保留。" : selectedSync?.phase === "needs_attention" || account.workSync?.reason === "needs_attention" ? "请先在原浏览器完成验证或页面处理，再继续；已保存的进度仍保留。" : selectedBusy ? `${phaseLabel(selectedSync)} · 已保存 ${selectedSync?.progress?.saved ?? account.works?.length ?? 0} 条 · 已读取 ${selectedSync?.progress?.batches ?? 0} 批` : selectedSync?.error ? `同步未完成：${selectedSync.error} 已保存的作品和进度仍保留。` : unconfirmedHistory(selectedSync, account) ? historyExplanation(account) : account.workSync?.status === "paused" || selectedSync?.phase === "paused" ? account.workSync?.mode === "refresh" ? "本次同步已暂停，已保存的数据保留，可重新同步。" : account.workSync?.mode === "incremental" ? "已保存进度，等待继续增量同步。" : "已保存进度，等待继续补齐历史。" : account.workSync?.mode === "refresh" && account.workSync?.status === "incremental" ? "本次同步完成，账号指标和当前已加载作品已保存。补齐更早的作品请使用下方历史操作。" : account.workSync?.status === "incremental" ? "此次增量扫描已完成。" : account.workSync?.status === "complete" && account.workSync?.historyComplete ? "历史已读到末尾。" : "可继续补齐历史，或先更新近期作品。"),
                           h("div", { className: "psw-actions", style: { flexWrap: "wrap" } },
                             selectedBusy
                               ? btn("暂停", () => action("sync/pause", { platform: selected }), null, "", pending)
                               : h(React.Fragment, null,
                                   btn("增量同步", () => sync(selected, account.workSync?.mode === "incremental" && (account.workSync?.status === "paused" || selectedSync?.phase === "paused"), "sync", { mode: "incremental" }), "refresh", "", pending),
-                                  btn(account.workSync?.historyCheckpoint || (account.workSync?.status === "paused" && account.workSync?.mode !== "incremental") ? "继续补齐" : "补齐历史", () => sync(selected, true, "sync", { mode: "history" }), null, "", pending),
+                                  btn(account.workSync?.historyCheckpoint || (account.workSync?.status === "paused" && account.workSync?.mode === "history") ? "继续补齐" : "补齐历史", () => sync(selected, true, "sync", { mode: "history" }), null, "", pending),
                                   btn("重新扫描", () => sync(selected, true, "sync", { mode: "history", restart: true }), null, "psw-quiet", pending),
                                 ),
                           ),
@@ -2407,15 +2499,17 @@ window.__ModuleLoader__.load({
         ),
         showTop && !modal && h("button", { type: "button", className: "psw-back-top", "aria-label": "回到顶部", onClick: () => {
           mainRef.current?.scrollTo?.({ top: 0, behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-        } }, "↑", "回到顶部"),
+          mainRef.current?.focus?.({ preventScroll: true });
+        } }, h(Icon, { name: "top", size: 23, strokeWidth: 2 }), h("span", { className: "psw-top-tooltip", "aria-hidden": true }, "回到顶部")),
         modal &&
           h(
             Modal,
             {
               key: modal,
               notification,
+              scrollLabel: modal === "releases" ? "版本更新记录" : undefined,
               title:
-                modal === "help" ? "帮助与反馈" : modal === "add"
+                modal === "releases" ? "更新记录" : modal === "help" ? "诊断信息" : modal === "add"
                   ? "添加平台"
                   : modal === "developer"
                     ? "开发新平台接入"
@@ -2436,10 +2530,16 @@ window.__ModuleLoader__.load({
               h("div", { className: "psw-notice error", role: "alert" }, operationError.message),
             modal === "add" && issues.filter(item => item.p.id === addPlatform).map(issue),
             issues.length > 0 && modal === "connection" && issues.map(issue),
-            modal === "help"
+            modal === "releases"
+              ? h("div", { className: "psw-release-list" }, releaseNotes.map(release =>
+                  h("article", { className: "psw-release", key: release.version },
+                    h("div", { className: "psw-release-heading" }, h("h3", null, "v" + release.version),
+                      release.version === appVersion && h("span", { className: "psw-current-version" }, "当前版本"),
+                      h("span", { className: "psw-release-date" }, release.date)),
+                    h("ul", null, release.items.map(([kind, message], i) => h("li", { key: i }, h("span", { className: "psw-release-kind" }, kind), h("span", null, message)))))))
+              : modal === "help"
               ? h(React.Fragment, null,
-                  h("div", { className: "psw-help-links" }, guideControl(), feedbackLink()),
-                  h("p", { className: "psw-note" }, "意见反馈将在新标签页打开飞书表单。诊断信息仅在你点击复制后写入剪贴板，不会自动上传。"),
+                  h("p", { className: "psw-note" }, "以下信息仅包含版本与连接状态。点击复制后，可按需粘贴到反馈表单，不会自动上传。"),
                   h("label", { className: "psw-field" }, "诊断信息",
                     h("textarea", { className: "psw-diagnostics", readOnly: true, rows: 6, value: diagnosticText, onFocus: e => e.currentTarget.select() })),
                   copyError && h("p", { className: "psw-danger", role: "alert" }, copyError),

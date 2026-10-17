@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
 import { readFile } from "node:fs/promises";
+const { version: packageVersion } = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 const code = await readFile(
   new URL("../src/client.js", import.meta.url),
   "utf8",
@@ -137,6 +138,7 @@ function fixture({ paired = false, hidden = false, phase = null, syncFailure = f
     },
   };
   vm.runInNewContext(code, {
+    __PSW_VERSION__: packageVersion,
     Date: class extends Date { static now() { return now; } },
     setTimeout(fn, delay) { const id = ++timerId; timers.set(id, { fn, at: now + delay }); return id; },
     clearTimeout(id) { timers.delete(id); },
@@ -296,7 +298,7 @@ test("resume preserves original provider and exact platform URL", async () => {
   await button(app.render(), "继续同步").props.onClick();
   assert.deepEqual(app.calls.find((c) => c.path.endsWith("/sync")).body, {
     platform: "douyin",
-    mode: "history",
+    mode: "refresh",
     provider: "browser",
     url: "https://www.douyin.com/user/lin_film",
     resume: true,
@@ -989,7 +991,7 @@ test("library sync actions carry modes, restart, pause and default mode", async 
   app.state.accounts.douyin.workSync.historyComplete = true;
   await app.poll();
   await button(app.render(), "同步账号").props.onClick();
-  assert.equal(app.calls.findLast(c => c.path.endsWith("/sync")).body.mode, "incremental");
+  assert.equal(app.calls.findLast(c => c.path.endsWith("/sync")).body.mode, "refresh");
 });
 
 test("real service idle entries do not imply platform selection", () => {
@@ -1039,11 +1041,11 @@ test("guide pairing completion does not claim the browser is currently online", 
   assert(!text(guideStep(tree, 0)).includes("已连接"));
 });
 
-test("archived library stays read-only and history is the legacy default", async () => {
+test("archived library stays read-only and daily refresh is the default", async () => {
   const app = fixture();
   button(app.render(), "查看详情").props.onClick();
   await button(app.render(), "同步账号").props.onClick();
-  assert.equal(app.calls.findLast(c => c.path.endsWith("/sync")).body.mode, "history");
+  assert.equal(app.calls.findLast(c => c.path.endsWith("/sync")).body.mode, "refresh");
   const archived = fixture();
   archived.state.archives.push({ platform: "douyin", account: archived.state.accounts.douyin, archivedAt: new Date().toISOString() });
   button(archived.render(), "设置").props.onClick();
@@ -1134,7 +1136,7 @@ test("failed dialog operation has one dismissible notice inside the focus bounda
 });
 function attachMain(app, top = 0) {
   const main = nodes(app.render()).find(n => n.type === "main");
-  const element = { scrollTop: top, clientHeight: 600, scrollTo(...args) { this.lastScroll = args; this.scrollTop = typeof args[0] === "object" ? args[0].top : args[1]; } };
+  const element = { scrollTop: top, clientHeight: 600, focus(options) { this.focusOptions = options; }, scrollTo(...args) { this.lastScroll = args; this.scrollTop = typeof args[0] === "object" ? args[0].top : args[1]; } };
   main.props.ref.current = element;
   return element;
 }
@@ -1162,9 +1164,11 @@ test("back-to-top uses the workbench scroll container and hides in a dialog", ()
   nodes(tree).find(n => n.type === "main").props.onScroll({ currentTarget: main });
   button(app.render(), "回到顶部").props.onClick();
   assert.equal(main.scrollTop, 0);
+  assert.equal(main.focusOptions?.preventScroll, true);
+  assert.equal(nodes(app.render()).find(n => n.type === "main").props.tabIndex, -1);
   main.scrollTop = 610;
   nodes(app.render()).find(n => n.type === "main").props.onScroll({ currentTarget: main });
-  button(app.render(), "帮助").props.onClick();
+  button(app.render(), "浏览器连接").props.onClick();
   assert(!button(app.render(), "回到顶部"));
 });
 test("help previews only allowlisted diagnostics and copy uses that exact preview", async () => {
@@ -1173,7 +1177,8 @@ test("help previews only allowlisted diagnostics and copy uses that exact previe
   app.state.browserConnection.label = "private-machine";
   app.state.environment.message = "raw-error-with-user-data";
   app.state.settings.provider = "browser";
-  const help = button(app.render(), "帮助"); assert(help, "header help is accessible"); help.props.onClick();
+  button(app.render(), "设置").props.onClick();
+  button(app.render(), "查看诊断信息").props.onClick();
   const tree = app.render(), dialog = nodes(tree).find(n => n.props.role === "dialog");
   assert(dialog.props["aria-modal"]);
   const preview = field(dialog, "诊断信息"); assert(preview.props.readOnly);
@@ -1182,20 +1187,20 @@ test("help previews only allowlisted diagnostics and copy uses that exact previe
     assert(!preview.props.value.includes(value), value + " must not be copied");
   await button(dialog, "复制诊断信息").props.onClick();
   assert.deepEqual(app.clipboard, [preview.props.value]);
+  button(app.render(), "关闭").props.onClick();
   button(app.render(), "上手指南").props.onClick();
   assert(!nodes(app.render()).some(n => n.props.role === "dialog"));
   assert(nodes(app.render()).some(n => n.props.id === "psw-onboarding"));
 });
-test("feedback opens externally from help and settings without submitting data", () => {
+test("feedback opens externally from settings without submitting data", () => {
   const app = fixture();
-  const help = button(app.render(), "帮助"); assert(help); help.props.onClick();
+  button(app.render(), "设置").props.onClick();
   const feedback = nodes(app.render()).find(n => n.type === "a" && text(n).includes("意见反馈"));
   assert(feedback); assert.equal(feedback.props.target, "_blank");
   assert.match(feedback.props.rel, /noopener/); assert.match(feedback.props.rel, /noreferrer/);
   assert.match(feedback.props.href, /^https:\/\//);
   assert(!feedback.props.onClick, "link navigation must not submit diagnostics");
-  button(app.render(), "关闭").props.onClick(); button(app.render(), "设置").props.onClick();
-  assert(nodes(app.render()).some(n => n.type === "a" && n.props.href === feedback.props.href));
+  assert(!button(app.render(), "帮助"));
   assert.equal(app.calls.length, 0);
 });
 
@@ -1216,4 +1221,70 @@ test("schedule save keeps its local status and floats success outside scrolled s
   assert.equal(app.state.settings.platforms.douyin.schedule.enabled, true);
   button(toast, "关闭通知").props.onClick();
   assert.match(text(nodes(app.render()).find(n => n.props.className === "psw-platformsetting")), /计划已保存/);
+});
+
+
+test("settings place support after archives and release notes open locally without auto-opening", () => {
+  const app = fixture();
+  app.state.archives = [{ platform: "douyin", name: "旧账号" }];
+  assert(!nodes(app.render()).some(n => n.props.role === "dialog"));
+  button(app.render(), "设置").props.onClick();
+  const tree = app.render(), headings = nodes(tree).filter(n => n.type === "h2").map(text);
+  assert(headings.indexOf("帮助与反馈") > headings.indexOf("历史档案"));
+  assert(button(tree, "查看诊断信息"));
+  button(tree, "查看更新记录").props.onClick();
+  const dialog = nodes(app.render()).find(n => n.props.role === "dialog");
+  assert.equal(dialog.props["aria-label"], "更新记录");
+  const scrollRegion = nodes(dialog).find(n => n.props.className === "psw-dialogbody");
+  assert.equal(scrollRegion.props.tabIndex, 0);
+  assert.equal(scrollRegion.props["aria-label"], "版本更新记录");
+  assert.match(text(dialog), /0\.6\.3/);
+  assert.match(text(dialog), /2026-10-17/);
+  assert.match(text(dialog), /新增|优化|修复/);
+  const releases = nodes(dialog).filter(n => n.props.className === "psw-release");
+  assert.match(text(releases[0]), new RegExp(packageVersion.replaceAll(".", "\\.")));
+  assert.equal(nodes(dialog).filter(n => n.props.className === "psw-current-version").length, 1);
+  assert.equal(app.calls.length, 0, "release notes must not depend on a network request");
+  button(dialog, "关闭").props.onClick();
+  assert(button(app.render(), "查看更新记录"));
+});
+test("header separates return navigation from utilities and exposes a safe GitHub link", () => {
+  const app = fixture();
+  button(app.render(), "设置").props.onClick();
+  const header = nodes(app.render()).find(n => n.type === "header");
+  const tools = nodes(header).find(n => n.props.className === "psw-top-actions");
+  assert(button(header, "返回账号总览"));
+  assert(!button(tools, "返回账号总览"));
+  assert(!button(header, "帮助"));
+  const github = nodes(tools).find(n => n.type === "a" && n.props["aria-label"] === "查看 GitHub 项目");
+  assert(github); assert.equal(github.props.href, "https://github.com/beianbai/cross-platform-account-dashboard");
+  assert.equal(github.props.target, "_blank"); assert.match(github.props.rel, /noopener/);
+});
+
+test('unknown platform work total shows explicit collected count without changing metric history',()=>{
+ const app=fixture();app.state.accounts.douyin.workCount=null;app.state.accounts.douyin.works=[{id:'a',title:'合成作品'}];
+ const overview=app.render();assert.match(text(overview),/已收录作品/);
+ button(overview,'查看详情').props.onClick();const detail=app.render();assert.match(text(detail),/已收录作品/);
+ assert.equal(app.state.accounts.douyin.workCount,null);
+ const collected=nodes(detail).find(n=>n.type==='button'&&text(n).includes('已收录作品'));
+ assert.equal(collected.props.disabled,true);
+ app.state.accounts.douyin.workCount={value:0,display:'0',approximate:false};
+ assert(!text(app.render()).includes('已收录作品'));
+});
+test('saved records with unconfirmed history do not claim user pause or full completion',async()=>{
+ const app=fixture({paired:true});await button(app.render(),'同步抖音').props.onClick();
+ app.state.accounts.douyin.workSync={mode:'history',status:'paused',reason:'no_progress',historyComplete:false};
+ app.state.syncByPlatform.douyin={phase:'partial',running:false,automatic:false,jobId:'partial-1'};
+ await app.poll();const tree=app.render();assert.match(text(tree),/账号数据已更新/);assert.match(text(tree),/历史范围尚未确认/);assert(!text(tree).includes('已暂停'));assert(!text(tree).includes('同步成功'));
+ app.state.syncByPlatform.douyin={phase:'paused',running:false};app.state.accounts.douyin.workSync.reason='user_paused';
+ assert.match(text(app.render()),/已暂停/);
+});
+
+test('overview and account refresh do not resume an unfinished history task',async()=>{
+ const app=fixture({paired:true});app.state.accounts.douyin.workSync={mode:'history',status:'paused',reason:'no_progress',historyComplete:false,historyCheckpoint:{window:8}};
+ app.state.syncByPlatform.douyin={phase:'partial',running:false};
+ await button(app.render(),'同步抖音').props.onClick();assert.equal(app.calls.findLast(c=>c.path.endsWith('/sync')).body.mode,'refresh');
+ app.state.syncByPlatform.douyin={phase:'complete',running:false};await app.poll();
+ button(app.render(),'查看详情').props.onClick();await button(app.render(),'同步账号').props.onClick();
+ assert.equal(app.calls.findLast(c=>c.path.endsWith('/sync')).body.mode,'refresh');assert.equal(app.calls.findLast(c=>c.path.endsWith('/sync')).body.resume,undefined);
 });
