@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "跨平台账号看板 · 浏览器连接",
-  "version": "0.6.2",
+  "version": "0.6.6",
   "description": "在你自己的浏览器中登录，授权本机工作台只读同步账号与作品。",
   "permissions": [
     "storage",
