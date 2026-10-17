@@ -22,3 +22,6 @@ docs/superpowers/
 **/standalone-session.json
 **/.standalone.lock
 docs/development-reference.md
+
+# Local JetBrains IDE configuration
+.idea/
