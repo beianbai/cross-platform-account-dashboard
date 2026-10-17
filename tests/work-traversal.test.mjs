@@ -37,3 +37,44 @@ test('populated disabled Next with no page-total text still completes by exact c
   }finally{globalThis.document=oldDocument;globalThis.location=oldLocation;}
 });
 test('Bili final page with disabled Next saves changed content and confirms exact total',async()=>{let at=1,reads=0;const batches=[];const page={goto:async()=>{},evaluate:async fn=>{if(fn.name==='advanceWorkWindow'){at=2;return true;}reads++;return {identity:'https://space.bilibili.com/12',works:[{url:'https://www.bilibili.com/opus/'+(at===2&&reads>2?124:123),kind:'图文'}],pageIdentity:at,paginationBusy:at===2,end:false};}};const raw=await traverseWorks({page,platform:'bilibili',collection:{mode:'history',budgetMs:1000},onBatch:async r=>{batches.push(r);return {known:false};}},{url:'https://space.bilibili.com/12',coverage:{video:{total:'0'},opus:{total:'2'},audio:{total:'0'}}});assert.equal(raw.collectionProgress.status,'complete');assert.deepEqual(batches.flatMap(r=>r.works).map(w=>w.url),['https://www.bilibili.com/opus/123','https://www.bilibili.com/opus/124']);assert.equal(raw.collectionProgress.checkpoint,null);});
+
+test('Douyin selected zero-work tab is an empty result, not a loading list',()=>{
+ const oldDocument=globalThis.document,oldLocation=globalThis.location;
+ const tab={innerText:'作品\n0',getBoundingClientRect:()=>({width:90,height:30}),getAttribute:key=>key==='aria-selected'?'true':null};
+ const root={querySelectorAll:()=>[]};
+ try{
+  globalThis.document={querySelector:s=>s==='[data-e2e="user-post-list"]'?root:null,querySelectorAll:s=>s==='[role="tab"][aria-selected="true"]'?[tab]:[]};
+  globalThis.location={origin:'https://www.douyin.com',pathname:'/user/test'};
+  const result=readWorkWindow({platform:'douyin',category:'posts'});
+  assert.equal(result.loading,false);assert.equal(result.end,true);assert.equal(result.exactTotal,0);
+ }finally{globalThis.document=oldDocument;globalThis.location=oldLocation;}
+});
+test('Douyin exact selected-tab count confirms completion with visible works',async()=>{
+ const page={evaluate:async fn=>fn.name==='advanceWorkWindow'?false:{identity:'https://www.douyin.com/user/test',works:[{url:'https://www.douyin.com/video/123'}],exactTotal:1}};
+ const result=await traverseWorks({page,platform:'douyin',collection:{mode:'history'},onBatch:async()=>({known:false})},{url:'https://www.douyin.com/user/test',workCount:'1'});
+ assert.equal(result.collectionProgress.status,'complete');
+});
+test('X profile count cannot prove own-post history complete',async()=>{
+ const result=await traverseWorks({page:fixture([{identity:'https://x.com/me',works:works(1)}]),platform:'x',collection:{mode:'history',budgetMs:100},onBatch:async()=>({known:false})},{url:'https://x.com/me',workCount:'1'});
+ assert.equal(result.collectionProgress.status,'paused');
+});
+
+test('daily refresh saves loaded works without scrolling or claiming complete history',async()=>{
+ let advances=0;const batches=[];
+ const page={evaluate:async fn=>fn.name==='advanceWorkWindow'?(advances++,false):{identity:'https://x.com/me',works:works(2),end:false}};
+ const result=await traverseWorks({page,platform:'x',collection:{mode:'refresh',checkpoint:{platform:'x',accountURL:'https://x.com/me',window:8}},onBatch:async raw=>{batches.push(raw);return {known:false};}},{url:'https://x.com/me'});
+ assert.equal(advances,0);assert.equal(result.collectionProgress.mode,'refresh');assert.equal(result.collectionProgress.status,'incremental');assert.equal(result.collectionProgress.reason,'visible_snapshot');assert.equal(result.collectionProgress.checkpoint,null);assert.equal(batches.flatMap(b=>b.works).length,2);
+});
+test('daily refresh never succeeds for unreadable lists, identity mismatch or rejected storage',async()=>{
+ const base={platform:'x',collection:{mode:'refresh',budgetMs:100},onBatch:async()=>({known:false})};
+ for(const gate of ['needs_login','needs_attention','network_error'])await assert.rejects(traverseWorks({...base,page:{evaluate:async()=>({gate})}},{url:'https://x.com/me'}),e=>e.status===gate);
+ await assert.rejects(traverseWorks({...base,page:{evaluate:async()=>({loading:true,identity:'https://x.com/me',works:[]})}},{url:'https://x.com/me'}),e=>e.status==='network_error');
+ await assert.rejects(traverseWorks({...base,page:{evaluate:async()=>({identity:'https://x.com/other',works:works(1)})}},{url:'https://x.com/me'}),e=>e.status==='account_mismatch');
+ await assert.rejects(traverseWorks({...base,page:{evaluate:async()=>({identity:'https://x.com/me',works:works(1)})},onBatch:async()=>{throw Error('storage failed');}},{url:'https://x.com/me'}),/storage failed/);
+});
+test('daily refresh reads each Bili category once without paging',async()=>{
+ let category='',advances=0;const visits=[];
+ const page={goto:async url=>{category=url.split('/').at(-1);visits.push(category);},evaluate:async fn=>fn.name==='advanceWorkWindow'?(advances++,false):{identity:'https://space.bilibili.com/12',works:[{url:'https://www.bilibili.com/'+category+'/123'}],end:false}};
+ const result=await traverseWorks({page,platform:'bilibili',collection:{mode:'refresh'},onBatch:async()=>({known:false})},{url:'https://space.bilibili.com/12'});
+ assert.deepEqual(visits,['video','opus','audio']);assert.equal(advances,0);assert.equal(result.collectionProgress.status,'incremental');
+});

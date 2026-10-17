@@ -151,3 +151,8 @@ test('protocol 2 connector streams ordered batches, retries acknowledgement loss
  listener({type:'poll'},{id:'fixture'},()=>{});const result=await ended;
  assert.deepEqual(sequences,[0,0,1,2]);assert.equal(result.status,'ok');assert.equal(result.raw,undefined);
 });
+
+test('connector accepts explicit daily refresh mode and rejects unknown modes',()=>{
+ const job={id:'a'.repeat(64),platform:'x',url:'https://x.com/demo',protocol:2,collection:{mode:'refresh'}};
+ assert.equal(validJob(job),true);assert.equal(validJob({...job,collection:{mode:'unknown'}}),false);
+});

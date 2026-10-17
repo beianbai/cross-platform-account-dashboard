@@ -76,3 +76,10 @@ test('backup refuses to export an empty replacement when stored data is corrupt'
  assert.ok((await response.json()).error);
  assert.equal(await readFile(join(root,'accounts.json'),'utf8'),'broken-original');
 });
+
+test('saved account with unconfirmed history finishes as partial, not user-paused or complete',async t=>{
+ const app=await harness();t.after(()=>app.dispose());const browser=await pairBrowser(app);
+ await app.call('sync',{platform:'douyin'});const job=await jobFrom(browser);
+ await browser('/result',{id:job.id,status:'ok',raw:{url:'https://www.douyin.com/user/self',name:'合成账号',accountId:'partial-fixture',fans:'7',following:'2',works:[],collectionProgress:{mode:'history',status:'paused',reason:'no_progress',checkpoint:null,scanned:0}}});
+ const s=await settled(app);assert.equal(s.accounts.douyin.fans.value,7);assert.equal(s.sync.phase,'partial');assert.equal(s.accounts.douyin.workSync.historyComplete,false);
+});

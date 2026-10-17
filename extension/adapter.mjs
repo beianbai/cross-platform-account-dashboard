@@ -2,7 +2,7 @@ import {PLATFORMS,isPlatformPageURL} from '../src/platforms.mjs';
 import {readPageGate,collectionError} from '../src/collector.mjs';
 // Shared by Chrome/Edge and Firefox; only official, explicitly supported page routes.
 export function isPlatformURL(platform,value){return isPlatformPageURL(platform,value);}
-export function validJob(job){return !!job&&/^[a-f0-9]{64}$/.test(job.id)&&PLATFORMS.includes(job.platform)&&typeof job.url==='string'&&(!job.url||isPlatformURL(job.platform,job.url))&&(job.collection===undefined||(job.protocol===2&&['history','incremental'].includes(job.collection?.mode)&&JSON.stringify(job.collection).length<8192))&&['automatic','resume'].every(key=>job[key]===undefined||typeof job[key]==='boolean');}
+export function validJob(job){return !!job&&/^[a-f0-9]{64}$/.test(job.id)&&PLATFORMS.includes(job.platform)&&typeof job.url==='string'&&(!job.url||isPlatformURL(job.platform,job.url))&&(job.collection===undefined||(job.protocol===2&&['refresh','history','incremental'].includes(job.collection?.mode)&&JSON.stringify(job.collection).length<8192))&&['automatic','resume'].every(key=>job[key]===undefined||typeof job[key]==='boolean');}
 export const readLoginGate=readPageGate;
 export function createPageAdapter(api,tabId,platform,{automatic=false,sleep=ms=>new Promise(r=>setTimeout(r,ms)),now=Date.now}={}){
   async function evaluate(fn,arg){

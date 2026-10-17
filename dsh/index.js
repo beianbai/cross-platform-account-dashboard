@@ -11,6 +11,7 @@ import {inspectBrowser,checkBrowser,environmentResult} from '../src/browser-envi
 import {createBrowserBridge} from '../src/browser-bridge.mjs';
 import {validateSchedule,nextOccurrence,duePlatforms,failureTransition} from '../src/scheduler.mjs';
 const rootLifetimes=new Map();
+const unconfirmedReasons=new Set(['no_progress','no_pagination_evidence','category_not_ready']);
 const MESSAGES={needs_login:'登录已失效，请重新登录后继续同步。',needs_attention:'平台需要你处理登录或验证，完成后继续同步。',parse_error:'未能识别平台数据，请检查页面或更新接入。',network_error:'网络连接或页面加载失败，将按计划重试。',connection_offline:'浏览器未连接，恢复连接后继续同步。',account_mismatch:'当前账号与绑定账号不一致，旧数据已保留。'};
 export const name='personal-social-local';
 export const inject=['connection'];
@@ -29,11 +30,11 @@ export function apply(ctx,config) {
     if(disposed)return;
     await Promise.all([loadState(root).then(s=>{state=s;}).catch(e=>{loadError=e.message;}),inspectBrowser(executable).then(e=>{environment=e;}),createBrowserBridge(root).then(async b=>{if(disposed)await b.close();else bridge=b;}).catch(()=>{bridgeError='本机连接服务未启动，请检查连接设置；旧账号数据保留。';})]);
     for(const account of Object.values(state.accounts))if(account.workSync?.status==='running'){account.workSync={...account.workSync,status:'paused',reason:'interrupted'};}
-    for(const id of PLATFORMS){const s=platformSettings(state,id);if(s.recovery?.spaceId)spaces[id]=s.recovery;syncByPlatform[id]={running:false,platform:id,provider:s.recovery?.provider,url:s.recovery?.url,phase:s.pausedReason||(['queued','reading'].includes(s.lastStatus)?'idle':s.lastStatus)||'idle',lastResult:s.lastResult||'',error:''};}
+    for(const id of PLATFORMS){const s=platformSettings(state,id);if(s.recovery?.spaceId)spaces[id]=s.recovery;syncByPlatform[id]={running:false,platform:id,provider:s.recovery?.provider,url:s.recovery?.url,phase:s.lastStatus==='paused'&&unconfirmedReasons.has(state.accounts[id]?.workSync?.reason)?'partial':s.pausedReason||(['queued','reading'].includes(s.lastStatus)?'idle':s.lastStatus)||'idle',lastResult:s.lastResult||'',error:''};}
   });
   function mutate(fn){const op=commit.then(async()=>{if(disposed)throw Error('工作台正在退出');if(loadError)throw Error(loadError);const next=fn(state);await saveState(root,next);state=next;return next;});commit=op.catch(()=>{});return op;}
   function withSettings(s,id,patch){return {...s,settings:{...s.settings,platforms:{...s.settings.platforms,[id]:{...platformSettings(s,id),...patch}}}};}
-  function status(job,patch){const value={...syncByPlatform[job.platform],platform:job.platform,url:job.url,provider:job.provider,jobId:job.jobId,automatic:job.automatic,...patch};syncByPlatform[job.platform]=value;sync=value;}
+  function status(job,patch){const value={...syncByPlatform[job.platform],platform:job.platform,url:job.url,provider:job.provider,mode:job.collection.mode,jobId:job.jobId,automatic:job.automatic,...patch};syncByPlatform[job.platform]=value;sync=value;}
   function valid(job){return !disposed&&(revisions[job.platform]||0)===job.revision&&(!job.automatic||!!state.accounts[job.platform]);}
   async function body(request,needsPlatform=false){const text=await request.text();if(text.length>8192)throw Error('请求过大');const data=JSON.parse(text||'{}');if(!data||typeof data!=='object'||Array.isArray(data))throw Error('请求无效');if(needsPlatform&&!PLATFORMS.includes(data.platform))throw Error('请选择支持的平台');return data;}
   function providerFor(input){const chosen=input||state.settings.provider;if(!['auto','browser','ego'].includes(chosen))throw Error('请选择可用的浏览器连接方式');return chosen==='auto'?(bridge?.status().paired?'browser':'ego'):chosen;}
@@ -81,13 +82,14 @@ export function apply(ctx,config) {
       }
       const workSync=state.accounts[job.platform]?.workSync;
       const paused=workSync?.status==='paused'&&workSync.reason!=='legacy_connector';
-      const message=workSync?.reason==='legacy_connector'?'账号已更新；请更新浏览器连接器以补齐历史作品':paused?`已保存进度，本次新增 ${job.added} 条，可继续补齐`:workSync?.status==='complete'?`历史读取完成，本次新增 ${job.added} 条`:`增量同步完成，新增 ${job.added} 条`;
+      const partial=paused&&unconfirmedReasons.has(workSync.reason);
+      const message=workSync?.mode==='refresh'&&!paused?'本次同步完成，账号指标和当前已加载作品已保存':partial?'账号数据已更新，历史范围尚未确认，可稍后继续读取':workSync?.reason==='legacy_connector'?'账号已更新；请更新浏览器连接器以补齐历史作品':paused?`已保存进度，本次新增 ${job.added} 条，可继续补齐`:workSync?.status==='complete'?`历史读取完成，本次新增 ${job.added} 条`:`增量同步完成，新增 ${job.added} 条`;
       await mutate(s=>{
         if(!valid(job))return s;
         const settings=platformSettings(s,job.platform);
-        return withSettings(s,job.platform,{recovery:null,pausedReason:null,retryCount:0,lastStatus:paused?'paused':'complete',lastResult:message,nextRunAt:nextOccurrence(settings.schedule)});
+        return withSettings(s,job.platform,{recovery:null,pausedReason:null,retryCount:0,lastStatus:partial?'partial':paused?'paused':'complete',lastResult:message,nextRunAt:nextOccurrence(settings.schedule)});
       });
-      if(valid(job))status(job,{completedAt:new Date().toISOString(),running:false,phase:paused?'paused':'complete',error:'',lastResult:message});
+      if(valid(job))status(job,{completedAt:new Date().toISOString(),running:false,phase:partial?'partial':paused?'paused':'complete',error:'',lastResult:message});
     }catch(e){
       if(!valid(job))return;
       if(e.browserStatus)environment=environmentResult(e.browserStatus,executable);
@@ -105,9 +107,9 @@ export function apply(ctx,config) {
     if(bound&&url&&bound!==url)throw Error('已有绑定账号，请先解除绑定');
     if(provider==='browser'&&!bridge?.status().paired)throw Error('请先连接浏览器');
     if(provider==='ego'&&!automatic&&environment?.status==='missing')throw Error('请先连接浏览器，当前自动化连接不可用');
-    if(data.mode!==undefined&&!['history','incremental'].includes(data.mode))throw Error('请选择有效的同步方式');
+    if(data.mode!==undefined&&!['refresh','history','incremental'].includes(data.mode))throw Error('请选择有效的同步方式');
     const account=state.accounts[id];
-    const mode=data.mode||(account?.workSync?.historyComplete?'incremental':'history');
+    const mode=data.mode||'refresh';
     const collection={mode,budgetMs:90000,checkpoint:mode==='history'&&data.restart!==true?account?.workSync?.historyCheckpoint??null:null};
     const job={collection,jobId:randomUUID(),platform:id,url:bound||url,provider,automatic,resume:data.resume===true,revision:revisions[id]||0};
     if(automatic)queue.push(job);else queue.unshift(job);

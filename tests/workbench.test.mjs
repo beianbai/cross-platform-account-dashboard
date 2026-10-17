@@ -21,7 +21,7 @@ test('overdue schedules run once in background and successful completion advance
  const seed=applySnapshot(emptyState(),'douyin',normalizeSnapshot('douyin',raw));const c=seed.settings.platforms.douyin;c.schedule.enabled=true;c.nextRunAt='2026-01-01T00:00:00.000Z';
  const app=await setup(t,seed),browser=await pair(app);let job;
  for(let i=0;i<250;i++){job=(await browser('/poll')).job;if(job)break;await new Promise(r=>setTimeout(r,10));}
- assert(job,'overdue job should start without opening dashboard');assert.equal(job.automatic,true);assert.equal((await browser('/poll')).job,null);
+ assert(job,'overdue job should start without opening dashboard');assert.equal(job.automatic,true);assert.equal(job.collection.mode,'refresh');assert.equal((await browser('/poll')).job,null);
  await browser('/result',{id:job.id,status:'ok',raw});const s=await wait(app,s=>!s.sync.running);assert.equal(s.syncByPlatform.douyin.automatic,true);assert.equal(typeof s.syncByPlatform.douyin.jobId,'string');assert(Number.isFinite(Date.parse(s.syncByPlatform.douyin.completedAt)));assert.equal(s.settings.platforms.douyin.lastStatus,'complete');assert(Date.parse(s.settings.platforms.douyin.nextRunAt)>Date.now());assert.equal((await loadState(app.root)).accounts.douyin.daily.length,1);
 });
 test('unpaired scheduled browser reports offline for every due platform',async t=>{
@@ -40,7 +40,7 @@ test('manual sync exposes a stable lifecycle id and completion only after persis
 
 test('page batches persist before acknowledgement, survive pause, resume and become incremental',async t=>{
  const app=await setup(t),browser=await pair(app);
- await app.call('sync',{platform:'douyin'});let job=await jobFrom(browser);
+ await app.call('sync',{platform:'douyin',mode:'history'});let job=await jobFrom(browser);
  assert.equal(job.collection.mode,'history');
  const makeBatch=(start,count,status='running')=>({...raw,workCount:'500',works:Array.from({length:count},(_,i)=>({url:`https://www.douyin.com/video/${start+i}`,title:`作品 ${start+i}`})),collectionProgress:{mode:'history',status,reason:status==='complete'?'visible_end':'reading',checkpoint:status==='complete'?null:{page:Math.floor(start/100)+1},scanned:start+count}});
  for(let sequence=0;sequence<3;sequence++){
@@ -51,13 +51,13 @@ test('page batches persist before acknowledgement, survive pause, resume and bec
  assert((await browser('/batch',{id:job.id,sequence:3,raw:makeBatch(301,100)})).error);
  await wait(app,s=>!s.sync.running);
  assert.equal((await loadState(app.root)).accounts.douyin.works.length,300);
- await app.call('sync',{platform:'douyin'});job=await jobFrom(browser);
+ await app.call('sync',{platform:'douyin',mode:'history'});job=await jobFrom(browser);
  assert(job.collection.checkpoint);assert.equal(job.collection.mode,'history');
  await browser('/batch',{id:job.id,sequence:0,raw:makeBatch(301,20)});
  await browser('/batch',{id:job.id,sequence:1,raw:makeBatch(321,0,'complete')});
  await browser('/result',{id:job.id,status:'ok'});await wait(app,s=>!s.sync.running);
  let state=(await app.call('state')).data;assert.equal(state.accounts.douyin.works.length,320);assert.equal(state.accounts.douyin.workLibrary.added,20);assert.equal(state.accounts.douyin.workSync.historyComplete,true);
- await app.call('sync',{platform:'douyin'});job=await jobFrom(browser);assert.equal(job.collection.mode,'incremental');
+ await app.call('sync',{platform:'douyin'});job=await jobFrom(browser);assert.equal(job.collection.mode,'refresh');
  const duplicate=await browser('/batch',{id:job.id,sequence:0,raw:makeBatch(10,2)});assert.equal(duplicate.known,true);
  await browser('/result',{id:job.id,status:'needs_login'});state=await wait(app,s=>!s.sync.running);assert.equal(state.accounts.douyin.works.length,320);assert.equal(state.accounts.douyin.workSync.status,'paused');
 });
@@ -71,4 +71,31 @@ test('batch rejects changed identity and unbind invalidates late writes',async t
  await app.call('unbind',{platform:'douyin',confirm:true});
  assert((await browser('/batch',{id:job.id,sequence:1,raw:base})).error);
  assert.equal((await loadState(app.root)).accounts.douyin,undefined);
+});
+
+test('ordinary X and Xiaohongshu refresh completes through persisted batches and preserves history resume',async t=>{
+ const {traverseWorks}=await import('../src/work-traversal.mjs');
+ for(const platform of ['x','xiaohongshu']){
+  const url=platform==='x'?'https://x.com/fixture':'https://www.xiaohongshu.com/user/profile/abcdefabcdefabcdefabcdef';
+  const workURL=platform==='x'?'https://x.com/fixture/status/123':'https://www.xiaohongshu.com/explore/abcdefabcdefabcdefabcdef';
+  const checkpoint={platform,accountURL:url,category:'posts',window:3,scanned:1};
+  const metadata={url,accountId:'fixture',name:'日常同步测试',fans:'3',works:[{url:workURL,title:'已保存作品'}]};
+  const seed=applySnapshot(emptyState(),platform,normalizeSnapshot(platform,{...metadata,collectionProgress:{mode:'history',status:'paused',reason:'no_progress',scanned:1,checkpoint}}));
+  const app=await setup(t,seed),browser=await pair(app);
+  assert.equal((await app.call('sync',{platform})).status,202);
+  const job=await jobFrom(browser);assert.equal(job.collection.mode,'refresh');assert.equal(job.collection.checkpoint,null);
+  let sequence=0,advances=0;
+  const result=await traverseWorks({platform,collection:job.collection,page:{evaluate:async fn=>fn.name==='advanceWorkWindow'?(advances++,false):{identity:url,works:metadata.works,end:false}},onBatch:async raw=>{
+   const ack=await browser('/batch',{id:job.id,sequence:sequence++,raw});assert.equal(ack.ok,true);return ack;
+  }},{...metadata,fans:'5'});
+  await browser('/result',{id:job.id,status:'ok',raw:result});
+  const state=await wait(app,s=>!s.sync.running),disk=await loadState(app.root);
+  assert.equal(advances,0);assert.equal(state.syncByPlatform[platform].phase,'complete');assert.match(state.syncByPlatform[platform].lastResult,/本次同步完成/);
+  assert.equal(disk.accounts[platform].fans.value,5);assert.equal(disk.accounts[platform].works.length,1);
+  assert.equal(disk.accounts[platform].workSync.historyComplete,false);assert.deepEqual(disk.accounts[platform].workSync.historyCheckpoint,checkpoint);
+  await app.call('sync',{platform,mode:'history',resume:true});const historyJob=await jobFrom(browser);
+  assert.equal(historyJob.collection.mode,'history');assert.deepEqual(historyJob.collection.checkpoint,checkpoint);
+  await browser('/result',{id:historyJob.id,status:'needs_login'});const failed=await wait(app,s=>!s.sync.running);
+  assert.equal(failed.syncByPlatform[platform].phase,'needs_login');assert.equal(failed.accounts[platform].works.length,1);
+ }
 });

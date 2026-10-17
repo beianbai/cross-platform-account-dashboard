@@ -40,7 +40,7 @@ export function safeWorkURL(platform,value) {
 // Legacy snapshots used a 200-item cap. New libraries have no lifetime count cap.
 export function normalizeProgress(progress) {
   if(progress==null)return null;
-  if(!object(progress)||!['history','incremental'].includes(progress.mode)||!['running','paused','complete','incremental'].includes(progress.status)||!Number.isSafeInteger(progress.scanned)||progress.scanned<0)throw Error('作品采集进度无效');
+  if(!object(progress)||!['refresh','history','incremental'].includes(progress.mode)||!['running','paused','complete','incremental'].includes(progress.status)||!Number.isSafeInteger(progress.scanned)||progress.scanned<0)throw Error('作品采集进度无效');
   const checkpoint=progress.checkpoint??null;
   if(checkpoint!==null&&(!object(checkpoint)||JSON.stringify(checkpoint).length>4096))throw Error('作品检查点无效');
   return {mode:progress.mode,status:progress.status,reason:String(progress.reason||'').slice(0,120),checkpoint:structuredClone(checkpoint),scanned:progress.scanned};
@@ -194,7 +194,7 @@ export function applySnapshot(input,platform,snapshot) {
   const daily=mergeDaily(previous?.daily||[],dailyPoint(sample,platformSettings(state,platform).schedule.timeZone));
   const account={...structuredClone(snapshot),...mergeLibrary(previous,snapshot),platform,history,daily};
   delete account.collectionProgress;
-  if(account.coverage)for(const [key,kind] of Object.entries({video:'视频',opus:'图文',audio:'音频'}))if(account.coverage[key]){account.coverage[key].loaded=account.works.filter(w=>w.kind===kind).length;if(snapshot.collectionProgress?.mode==='history'&&snapshot.collectionProgress.status==='complete'){account.coverage[key].status=account.coverage[key].total?.value===0?'empty':'complete';delete account.coverage[key].reason;}else if(snapshot.collectionProgress?.mode==='incremental'&&previous?.coverage?.[key]?.status==='complete'&&account.coverage[key].status!=='unavailable')account.coverage[key].status='complete';}
+  if(account.coverage)for(const [key,kind] of Object.entries({video:'视频',opus:'图文',audio:'音频'}))if(account.coverage[key]){account.coverage[key].loaded=account.works.filter(w=>w.kind===kind).length;if(snapshot.collectionProgress?.mode==='history'&&snapshot.collectionProgress.status==='complete'){account.coverage[key].status=account.coverage[key].total?.value===0?'empty':'complete';delete account.coverage[key].reason;}else if(['refresh','incremental'].includes(snapshot.collectionProgress?.mode)&&previous?.coverage?.[key]?.status==='complete'&&account.coverage[key].status!=='unavailable')account.coverage[key].status='complete';}
   validateAccount(platform,account,2);
   return {...state,archives:state.archives.filter((_,index)=>index!==archiveIndex),accounts:{...state.accounts,[platform]:account}};
 }

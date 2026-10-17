@@ -36,3 +36,10 @@ test('invalid progress and account switches never overwrite a library',()=>{
  assert.throws(()=>applySnapshot(state,'douyin',normalizeSnapshot('douyin',raw([2],{url:'https://www.douyin.com/user/other',accountId:'other'}))));
  assert.equal(state.accounts.douyin.works.length,1);
 });
+
+test('daily refresh retains the unfinished history checkpoint and previously saved works',()=>{
+ const checkpoint={version:1,platform:'douyin',accountURL:'https://www.douyin.com/user/abc',category:'posts',window:3};
+ let state=applySnapshot(emptyState(),'douyin',normalizeSnapshot('douyin',raw([1],{collectionProgress:{mode:'history',status:'paused',reason:'budget',checkpoint,scanned:1}})));
+ state=applySnapshot(state,'douyin',normalizeSnapshot('douyin',raw([2],{collectionProgress:{mode:'refresh',status:'incremental',reason:'visible_snapshot',checkpoint:null,scanned:1}})));
+ assert.equal(state.accounts.douyin.works.length,2);assert.deepEqual(state.accounts.douyin.workSync.historyCheckpoint,checkpoint);assert.equal(state.accounts.douyin.workSync.historyComplete,false);validateState(state);
+});
