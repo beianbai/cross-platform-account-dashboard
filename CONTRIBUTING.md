@@ -2,6 +2,8 @@
 
 需要 Node.js 22+ 和 pnpm 10（项目固定版本见 package.json）。
 
+DSH Desktop 开发与本机更新必须遵循 [本地开发、更新与验收流程](docs/DSH-LOCAL-DEVELOPMENT.md)。下面的测试、构建和独立版启动不会自动更新 Desktop；还需打包、安装，并在宿主内验收。提交、合并和推送分别需要用户明确授权。
+
 ```sh
 pnpm install --frozen-lockfile
 pnpm test
