@@ -268,6 +268,5 @@ window.__ModuleLoader__ = {
     });
   },
 };
-const script = document.createElement("script");
-script.src = "../lib/client.js";
-document.body.append(script);
+// Bundle the same source with preview version/runtime metadata; keep the fixture self-contained.
+import("../src/client.js");

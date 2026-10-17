@@ -92,6 +92,7 @@ function fixture({ paired = false, hidden = false, phase = null, syncFailure = f
       label: "Chrome",
     },
   };
+  const clipboard = [];
   const hooks = new Map([["Panel", [initialLoading ? null : state]]]),
     calls = [];
   let current = "Panel",
@@ -163,7 +164,7 @@ function fixture({ paired = false, hidden = false, phase = null, syncFailure = f
     URL,
     document: { baseURI: "http://localhost/", addEventListener: (name, fn) => listeners.set(name, fn), removeEventListener: (name) => listeners.delete(name) },
     requestAnimationFrame: (fn) => fn(),
-    navigator: { clipboard: { writeText: async () => {} } },
+    navigator: { clipboard: { writeText: async value => { clipboard.push(value); } } },
     fetch: async (path, options) => {
       const body = options?.body ? JSON.parse(options.body) : null;
       calls.push({ path, body });
@@ -208,6 +209,7 @@ function fixture({ paired = false, hidden = false, phase = null, syncFailure = f
   }
   return {
     calls,
+    clipboard,
     storage,
     listeners,
     selectText(value) { selection = value; },
@@ -473,11 +475,11 @@ test("detail metric and date range are restored per account after returning to o
   open("douyin");
   button(app.render(), "获赞9").props.onClick();
   button(app.render(), "7 天").props.onClick();
-  button(app.render(), "全部账号").props.onClick();
+  button(app.render(), "返回账号总览").props.onClick();
   open("x");
   assert.equal(button(app.render(), "30 天").props["aria-pressed"], true);
   assert.equal(button(app.render(), "粉丝123").props["aria-pressed"], true);
-  button(app.render(), "全部账号").props.onClick();
+  button(app.render(), "返回账号总览").props.onClick();
   open("douyin");
   assert.equal(button(app.render(), "获赞9").props["aria-pressed"], true);
   assert.equal(button(app.render(), "7 天").props["aria-pressed"], true);
@@ -664,7 +666,7 @@ test("account card routes from its body and keyboard while controls and selected
   assert(!text(app.render()).includes("粉丝趋势"));
   card.props.onClick({ target: { closest: () => null } });
   assert.match(text(app.render()), /粉丝趋势/);
-  button(app.render(), "全部账号").props.onClick();
+  button(app.render(), "返回账号总览").props.onClick();
   card = nodes(app.render()).find(n => n.type === "article");
   let stopped = false;
   await button(card, "同步抖音").props.onClick({ stopPropagation() { stopped = true; } });
@@ -749,13 +751,18 @@ test("schedule choices share Select and save interval changes", async () => {
   assert.equal(schedule.kind, "interval");
   assert.equal(schedule.hours, 12);
 });
-test("a submission failure is attached to the bound card, with no global duplicate", async () => {
+test("a submission failure shows one floating result and retains one inline recovery", async () => {
   const app = fixture({ syncFailure: true });
   await button(app.render(), "同步抖音").props.onClick();
   const tree = app.render();
   const card = nodes(tree).find(n => n.type === "article");
   assert.match(text(card), /浏览器连接已离线/);
-  assert.equal((text(tree).match(/浏览器连接已离线/g) || []).length, 1);
+  assert.equal(nodes(tree).filter(n => n.props.className?.includes("psw-result")).length, 1);
+  button(tree, "关闭通知").props.onClick();
+  assert.equal((text(app.render()).match(/浏览器连接已离线/g) || []).length, 1);
+  await app.poll();
+  assert(!nodes(app.render()).some(n => n.props.className?.includes("psw-result")));
+  assert(button(app.render(), "重试"));
 });
 
 
@@ -947,7 +954,7 @@ test("library pages 55 works, filters and account changes reset the page", () =>
   assert.match(text(app.render()), /第 1 \/ 2 页/);
   assert.equal(articles().length, 24);
   button(app.render(), "下一页").props.onClick();
-  button(app.render(), "全部账号").props.onClick();
+  button(app.render(), "返回账号总览").props.onClick();
   button(app.render(), "查看详情").props.onClick();
   assert.match(text(app.render()), /第 1 \/ 3 页/);
   assert.match(text(app.render()), /累计保存 55 条/);
@@ -1081,4 +1088,132 @@ test("manual theme overrides system appearance and invalid saved themes fall bac
   assert.equal(fixture({ storedTheme: "light", systemDark: true }).render().props["data-theme"], "light");
   assert.equal(fixture({ storedTheme: "dark", systemDark: false }).render().props["data-theme"], "dark");
   assert.equal(fixture({ storedTheme: "invalid", systemDark: true }).render().props["data-theme"], "light");
+});
+
+
+test("manual failure floats outside main once while its recovery remains after dismissal", async () => {
+  const app = fixture({ paired: true });
+  await button(app.render(), "同步抖音").props.onClick();
+  app.state.syncByPlatform.douyin = { phase: "network_error", jobId: "floating-error", error: "暂时断网", automatic: false };
+  await app.poll();
+  let tree = app.render();
+  const toast = nodes(tree).find(n => n.props.className?.includes("psw-result"));
+  assert(toast, "manual failure must emit a floating result");
+  assert.equal(toast.props.role, "alert");
+  assert(!nodes(nodes(tree).find(n => n.type === "main")).includes(toast));
+  button(toast, "关闭通知").props.onClick();
+  await app.poll(); tree = app.render();
+  assert(!nodes(tree).some(n => n.props.className?.includes("psw-result")));
+  assert.match(text(nodes(tree).find(n => n.type === "article")), /暂时断网/);
+  assert(button(tree, "重试"));
+});
+test("successful sync floats outside the scrolling content and keeps history details in detail", async () => {
+  const app = fixture({ paired: true });
+  app.state.accounts.douyin.workSync = { status: "complete", historyComplete: true };
+  await button(app.render(), "同步抖音").props.onClick();
+  app.state.syncByPlatform.douyin = { phase: "complete", jobId: "floating-success", automatic: false };
+  await app.poll();
+  const tree = app.render(), toast = nodes(tree).find(n => n.props.className?.includes("psw-result"));
+  assert(toast);
+  assert(!nodes(nodes(tree).find(n => n.type === "main")).includes(toast));
+  assert(!text(toast).includes("历史"));
+  button(tree, "查看详情").props.onClick();
+  assert.match(text(nodes(app.render()).find(n => n.type === "main")), /历史已读到末尾/);
+});
+test("failed dialog operation has one dismissible notice inside the focus boundary", async () => {
+  const app = fixture({ syncFailure: true });
+  button(app.render(), "添加平台").props.onClick(); button(app.render(), "X").props.onClick();
+  await button(app.render(), "读取并绑定").props.onClick();
+  const tree = app.render(), dialog = nodes(tree).find(n => n.props.role === "dialog");
+  const toasts = nodes(tree).filter(n => n.props.className?.includes("psw-result"));
+  assert.equal(toasts.length, 1);
+  assert(nodes(dialog).includes(toasts[0]));
+  assert(!nodes(nodes(dialog).find(n => n.props.className === "psw-dialogbody")).includes(toasts[0]));
+  button(toasts[0], "关闭通知").props.onClick();
+  assert.match(text(nodes(app.render()).find(n => n.props.role === "dialog")), /浏览器连接已离线/);
+});
+function attachMain(app, top = 0) {
+  const main = nodes(app.render()).find(n => n.type === "main");
+  const element = { scrollTop: top, clientHeight: 600, scrollTo(...args) { this.lastScroll = args; this.scrollTop = typeof args[0] === "object" ? args[0].top : args[1]; } };
+  main.props.ref.current = element;
+  return element;
+}
+test("permanent header return restores overview scroll through detail and settings", () => {
+  const app = fixture(), main = attachMain(app, 730);
+  button(app.render(), "查看详情").props.onClick();
+  let header = nodes(app.render()).find(n => n.type === "header");
+  assert(button(header, "返回账号总览"));
+  button(header, "设置").props.onClick();
+  main.scrollTop = 180;
+  header = nodes(app.render()).find(n => n.type === "header");
+  button(header, "返回账号总览").props.onClick();
+  assert.equal(main.scrollTop, 730);
+  main.scrollTop = 420;
+  button(app.render(), "设置").props.onClick();
+  button(app.render(), "返回账号总览").props.onClick();
+  assert.equal(main.scrollTop, 420);
+});
+test("back-to-top uses the workbench scroll container and hides in a dialog", () => {
+  const app = fixture(), main = attachMain(app);
+  assert(!button(app.render(), "回到顶部"));
+  let tree = app.render();
+  assert.equal(typeof nodes(tree).find(n => n.type === "main").props.onScroll, "function");
+  main.scrollTop = 610;
+  nodes(tree).find(n => n.type === "main").props.onScroll({ currentTarget: main });
+  button(app.render(), "回到顶部").props.onClick();
+  assert.equal(main.scrollTop, 0);
+  main.scrollTop = 610;
+  nodes(app.render()).find(n => n.type === "main").props.onScroll({ currentTarget: main });
+  button(app.render(), "帮助").props.onClick();
+  assert(!button(app.render(), "回到顶部"));
+});
+test("help previews only allowlisted diagnostics and copy uses that exact preview", async () => {
+  const app = fixture({ paired: true });
+  app.state.browserConnection.token = "secret-token";
+  app.state.browserConnection.label = "private-machine";
+  app.state.environment.message = "raw-error-with-user-data";
+  app.state.settings.provider = "browser";
+  const help = button(app.render(), "帮助"); assert(help, "header help is accessible"); help.props.onClick();
+  const tree = app.render(), dialog = nodes(tree).find(n => n.props.role === "dialog");
+  assert(dialog.props["aria-modal"]);
+  const preview = field(dialog, "诊断信息"); assert(preview.props.readOnly);
+  assert.match(preview.props.value, /版本|运行方式|浏览器扩展|ready/);
+  for (const value of ["secret-token", "private-machine", "raw-error-with-user-data", "lin_film", "林间", "https://", "test-connection-code"])
+    assert(!preview.props.value.includes(value), value + " must not be copied");
+  await button(dialog, "复制诊断信息").props.onClick();
+  assert.deepEqual(app.clipboard, [preview.props.value]);
+  button(app.render(), "上手指南").props.onClick();
+  assert(!nodes(app.render()).some(n => n.props.role === "dialog"));
+  assert(nodes(app.render()).some(n => n.props.id === "psw-onboarding"));
+});
+test("feedback opens externally from help and settings without submitting data", () => {
+  const app = fixture();
+  const help = button(app.render(), "帮助"); assert(help); help.props.onClick();
+  const feedback = nodes(app.render()).find(n => n.type === "a" && text(n).includes("意见反馈"));
+  assert(feedback); assert.equal(feedback.props.target, "_blank");
+  assert.match(feedback.props.rel, /noopener/); assert.match(feedback.props.rel, /noreferrer/);
+  assert.match(feedback.props.href, /^https:\/\//);
+  assert(!feedback.props.onClick, "link navigation must not submit diagnostics");
+  button(app.render(), "关闭").props.onClick(); button(app.render(), "设置").props.onClick();
+  assert(nodes(app.render()).some(n => n.type === "a" && n.props.href === feedback.props.href));
+  assert.equal(app.calls.length, 0);
+});
+
+test("schedule save keeps its local status and floats success outside scrolled settings", async () => {
+  const app = fixture();
+  button(app.render(), "设置").props.onClick();
+  const scroller = attachMain(app, 800);
+  field(app.render(), "自动同步").props.onChange({ target: { checked: true } });
+  await button(app.render(), "保存计划").props.onClick();
+  const tree = app.render(), main = nodes(tree).find(n => n.type === "main");
+  const toast = nodes(tree).find(n => n.props.className?.includes("psw-result"));
+  assert(toast, "successful schedule save must emit a floating result");
+  assert.equal(toast.props.role, "status");
+  assert(!nodes(main).includes(toast));
+  assert.equal(scroller.scrollTop, 800);
+  const schedule = nodes(main).find(n => n.props.className === "psw-platformsetting");
+  assert(nodes(schedule).some(n => n.props.role === "status" && text(n).includes("计划已保存")));
+  assert.equal(app.state.settings.platforms.douyin.schedule.enabled, true);
+  button(toast, "关闭通知").props.onClick();
+  assert.match(text(nodes(app.render()).find(n => n.props.className === "psw-platformsetting")), /计划已保存/);
 });

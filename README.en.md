@@ -69,7 +69,7 @@ pnpm start
 
 For Chrome / Edge:
 
-1. Click “连接浏览器” (Connect browser), choose “常用浏览器 · 扩展连接” (Browser extension), then download and extract the local connector.
+1. Click “连接浏览器” (Connect browser), choose “浏览器扩展” (Browser extension), then download and extract the local connector.
 2. Open `chrome://extensions` or `edge://extensions`, enable Developer mode, and load the extracted `chromium` folder as an unpacked extension.
 3. Generate a connection code in the dashboard, paste it into the connector from your browser toolbar, and authorize it. Codes **expire after two minutes and work only once**.
 

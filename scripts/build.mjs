@@ -2,14 +2,17 @@ import {mkdir,readFile,writeFile} from 'node:fs/promises';
 import vm from 'node:vm';
 const cover=await readFile(new URL('../assets/cover.png',import.meta.url));
 if(cover.subarray(0,8).toString('hex')!=='89504e470d0a1a0a')throw Error('封面必须是有效 PNG');
-const source=(await readFile(new URL('../src/client.js',import.meta.url),'utf8')).replace('__WORKBENCH_COVER__','data:image/png;base64,'+cover.toString('base64'));
+const packageJSON=JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8'));
+const source=(await readFile(new URL('../src/client.js',import.meta.url),'utf8'))
+ .replace('__WORKBENCH_COVER__','data:image/png;base64,'+cover.toString('base64'))
+ .replace(/\b__PSW_VERSION__\b/g,JSON.stringify(packageJSON.version))
+ .replace(/\b__PSW_RUNTIME__\b/g,JSON.stringify('桌面工作台'));
 new vm.Script(source,{filename:'client.js'});
 if(!source.includes('window.__ModuleLoader__.load('))throw Error('缺少客户端加载器注册');
 await mkdir(new URL('../lib/',import.meta.url),{recursive:true});
 await writeFile(new URL('../lib/client.js',import.meta.url),'/* Built single-file module; no runtime compiler required. */\n'+source);
 console.log('Built lib/client.js; syntax verified.');
 const {zipEntries}=await import('./zip.mjs');
-const packageJSON=JSON.parse(await readFile(new URL('../package.json',import.meta.url),'utf8'));
 const sources=await Promise.all(['../src/platforms.mjs','../src/work-traversal.mjs','../src/collector.mjs','../extension/adapter.mjs','../extension/background.mjs'].map(p=>readFile(new URL(p,import.meta.url),'utf8')));
 const background='(()=>{\n'+sources.map(s=>s.replace(/^import .*;\n/gm,'').replace(/^export /gm,'')).join('\n')+'\n})();\n';new vm.Script(background);
 const shared=await Promise.all(['popup.html','popup.js','popup.css'].map(async name=>[name,await readFile(new URL('../extension/'+name,import.meta.url),'utf8')]));
