@@ -71,11 +71,15 @@ pnpm start
 
 For Chrome / Edge:
 
-1. Click “连接浏览器” (Connect browser), then download and extract the local connector.
+1. Click “连接浏览器” (Connect browser), then “点击下载浏览器扩展” (Download browser extension), and extract the ZIP file.
 2. Open `chrome://extensions` or `edge://extensions`, enable Developer mode, and load the extracted `chromium` folder as an unpacked extension.
-3. Generate a connection code in the dashboard, paste it into the connector from your browser toolbar, and authorize it. Codes **expire after two minutes and work only once**.
+3. Generate a connection code in the dashboard, paste it into the connector from your browser toolbar, and authorize it. Codes **expire after two minutes and work only once**. After authorization, the dashboard shows a confirmation toast and the connection card switches to “已连接” (Connected).
 
 Install the extension and confirm permissions yourself. Sign in to each platform in your own browser. Full instructions, including Firefox setup, are in the [connector guide — 中文](extension/README.md).
+
+![Browser connection dialog with a connected status card, extension download button, and pairing control](assets/browser-connection.png)
+
+*Current dashboard interface with a demo connection; a browser connection does not confirm platform sign-in.*
 
 <a href="assets/browser-connector.png"><img src="assets/browser-connector.png" alt="Light-theme browser connector showing an authorized demo browser, sync task status, the latest result, and controls to check tasks, reconnect, or disconnect" width="380"></a>
 
