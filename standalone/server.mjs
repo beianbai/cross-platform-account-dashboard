@@ -1,9 +1,10 @@
 import { createServer } from 'node:http';
-import { randomBytes, timingSafeEqual, createHash } from 'node:crypto';
+import { randomBytes, timingSafeEqual, createHash, createHmac } from 'node:crypto';
 import { mkdir, open, readFile, realpath, unlink, access } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createAccess, privateJSON, IDLE_MS } from './access.mjs';
 import { apply } from '../dsh/index.js';
 
 const secret = () => randomBytes(32).toString('hex');
@@ -22,21 +23,6 @@ export function defaultDataRoot() {
   return join(base, 'cross-platform-account-dashboard', 'standalone');
 }
 async function exists(path) { try { await access(path); return true; } catch (error) { if (error.code === 'ENOENT') return false; throw error; } }
-async function sessionSecret(root) {
-  const filename = join(root, 'standalone-session.json');
-  try {
-    const saved = JSON.parse(await readFile(filename, 'utf8'));
-    if (saved.version !== 1 || !/^[a-f0-9]{64}$/.test(saved.secret)) throw Error('invalid');
-    return saved.secret;
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw Error('独立模式登录文件无法读取；已有数据未修改。');
-    // A first standalone launch must not adopt an existing DSH data directory.
-    if (await exists(join(root, 'accounts.json')) || await exists(join(root, 'browser-connection.json'))) throw Error('请选择新的独立数据目录，不能直接使用已有 DSH 账号目录。');
-    const token = secret(), file = await open(filename, 'wx', 0o600);
-    try { await file.writeFile(JSON.stringify({ version: 1, secret: token })); await file.sync(); } finally { await file.close(); }
-    return token;
-  }
-}
 function readBody(req) {
   if (Number(req.headers['content-length'] || 0) > maxBody) { req.resume(); return Promise.reject(Object.assign(Error('请求过大'), { status: 413 })); }
   return new Promise((resolveBody, reject) => {
@@ -64,19 +50,25 @@ export async function startStandalone({ port = 43120, root = defaultDataRoot(), 
     if (error.code === 'EEXIST') throw Error(`此独立数据目录已被占用。确认没有实例运行后，才可删除遗留锁文件：${lockPath}`);
     throw error;
   }
-  let server, closing, origin, bootstrap = secret();
+  let server, closing, origin, accessStore;
+  const controlPath=join(root,'.standalone-control.json'), controlSecret=secret();
+  let controlWritten=false;
   const cleanup = [], routes = new Map(), csrf = secret();
   const close = () => closing ||= (async () => {
     try {
       if (server?.listening) { const stopped = new Promise((r, j) => server.close(error => error ? j(error) : r())); server.closeAllConnections(); await stopped; }
       for (const dispose of cleanup.reverse()) await dispose();
+      await accessStore?.close();
+      if(controlWritten)await unlink(controlPath);
     } finally { await lock.close(); await unlink(lockPath); }
   })();
   try {
     await lock.writeFile(JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }));
-    const session = await sessionSecret(root);
-    const cookieName = 'psw_session_' + createHash('sha256').update(root).digest('hex').slice(0, 16);
-    const authenticated = req => (req.headers.cookie || '').split(';').some(part => { const [key, value] = part.trim().split('='); return key === cookieName && equal(value, session); });
+    accessStore = await createAccess(root);
+    const cookieName = 'psw_access_' + createHash('sha256').update(root).digest('hex').slice(0, 16);
+    const cookieToken = req => (req.headers.cookie || '').split(';').map(s=>s.trim().split('=')).find(([key])=>key===cookieName)?.[1];
+    const cookie = token => `${cookieName}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(IDLE_MS/1000)}`;
+    const csrfFor = session => createHmac('sha256',csrf).update(session.id).digest('hex');
     apply({ connection: { fetch: { register(route) { for (const method of route.methods) routes.set(method + ' ' + route.path, route.fetch); } } }, effect(fn) { const dispose = fn(); if (typeof dispose === 'function') cleanup.push(dispose); } }, { root, browserExecutable });
     // Deliberately explicit allowlist: data and source paths can never become static files.
     const staticFiles = new Map([
@@ -84,8 +76,10 @@ export async function startStandalone({ port = 43120, root = defaultDataRoot(), 
       ['/assets/standalone.js', [new URL('../lib/standalone.js', import.meta.url), 'text/javascript; charset=utf-8']],
     ]);
     server = createServer(async (req, res) => {
+      let responseCookie;
       const send = (status, value, headers = {}) => {
         const outgoing = new Headers({ ...securityHeaders, 'Content-Type': 'application/json; charset=utf-8' });
+        if(responseCookie)outgoing.set('Set-Cookie',responseCookie);
         new Headers(headers).forEach((value, key) => outgoing.set(key, value));
         res.writeHead(status, Object.fromEntries(outgoing));
         res.end(typeof value === 'string' || Buffer.isBuffer(value) ? value : JSON.stringify(value));
@@ -98,32 +92,48 @@ export async function startStandalone({ port = 43120, root = defaultDataRoot(), 
           try { send(200, await readFile(filename), { 'Content-Type': type }); } catch { send(503, { error: '界面尚未构建，请先运行 npm run build。' }); }
           return;
         }
-        if (path !== '/session' && !routes.has(req.method + ' ' + path)) { send(404, { error: '未找到页面。' }); return; }
-        if (!['GET', 'POST'].includes(req.method)) { send(405, { error: '请求方法不可用。' }); return; }
-        const isBootstrap = path === '/session' && req.method === 'POST';
-        if (!isBootstrap && !authenticated(req)) { send(401, { error: '请使用启动时显示的本机链接打开工作台。' }); return; }
+        const accessRoutes=new Set(['GET /session','POST /auth/pair','POST /auth/code','GET /auth/sessions','POST /auth/revoke','POST /auth/control']);
+        if (!accessRoutes.has(req.method+' '+path) && !routes.has(req.method+' '+path)) { send(404, { error: '未找到页面。' }); return; }
+        const isControl=path==='/auth/control', isPair=path==='/auth/pair';
+        if(isControl){
+          if(req.headers.origin!==undefined||req.headers['sec-fetch-site']!==undefined||!equal(req.headers.authorization?.replace(/^Bearer /,''),controlSecret)){send(403,{error:'此操作仅供本机终端使用。'});return;}
+        }
+        const session=isControl?null:await accessStore.authenticate(cookieToken(req));
+        if(session)responseCookie=cookie(cookieToken(req));
+        if(!session&&!isPair&&!isControl){send(401,{error:'浏览器尚未授权、授权已过期或已撤销，请重新配对。',code:'access_required',upgraded:accessStore.upgraded});return;}
         let body;
-        if (req.method === 'POST') {
-          if (req.headers.origin !== origin || !/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] || '') || (!isBootstrap && !equal(req.headers['x-csrf-token'], csrf))) { send(403, { error: '请求来源或校验信息无效，请刷新工作台。' }); return; }
-          body = await readBody(req);
+        if(req.method==='POST'){
+          if((!isControl&&req.headers.origin!==origin)||!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type']||'')){send(403,{error:'请求来源无效，请从本机工作台操作。'});return;}
+          if(!isPair&&!isControl&&!equal(req.headers['x-csrf-token'],csrfFor(session))){send(403,{error:'服务校验已更新，请刷新页面后重试。',code:'csrf_expired'});return;}
+          body=await readBody(req);
         }
-        if (isBootstrap) {
-          let data; try { data = JSON.parse(body.toString('utf8')); } catch { send(400, { error: '请求无效。' }); return; }
-          if (!data || !equal(data.token, bootstrap)) { send(401, { error: '本机登录链接已失效，请使用当前启动链接。' }); return; }
-          bootstrap = null;
-          send(200, { csrf }, { 'Set-Cookie': `${cookieName}=${session}; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000` });
-          return;
+        let input;
+        if(req.method==='POST'&&path.startsWith('/auth/')){
+          try{input=JSON.parse(body.toString('utf8'));if(!input||typeof input!=='object'||Array.isArray(input))throw Error();}catch{send(400,{error:'请求格式无效。'});return;}
         }
-        if (path === '/session') { send(200, { csrf }); return; }
+        if(isPair){
+          if(session){send(200,{csrf:csrfFor(session),id:session.id});return;}
+          const result=await accessStore.redeem(input.code,req.headers['user-agent']);
+          send(200,{csrf:csrfFor(result.session),id:result.session.id},{'Set-Cookie':cookie(result.token)});return;
+        }
+        if(path==='/auth/code'||isControl){send(200,{...await accessStore.issue(),url:origin});return;}
+        if(path==='/auth/sessions'){send(200,{sessions:await accessStore.list(session.id),pairing:await accessStore.pairingStatus()});return;}
+        if(path==='/auth/revoke'){
+          if(input.confirm!==true){send(400,{error:'请确认撤销浏览器访问授权。'});return;}
+          await accessStore.revoke(input.id);send(200,{ok:true,current:input.id===session.id},input.id===session.id?{'Set-Cookie':`${cookieName}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`}:{});return;
+        }
+        if(path==='/session'){send(200,{csrf:csrfFor(session),id:session.id},{'Set-Cookie':cookie(cookieToken(req))});return;}
         const request = new Request(origin + path, { method: req.method, headers: { 'Content-Type': 'application/json' }, ...(body ? { body } : {}) });
         const response = await routes.get(req.method + ' ' + path)(request);
         send(response.status, Buffer.from(await response.arrayBuffer()), Object.fromEntries(response.headers));
-      } catch (error) { if (!res.headersSent) send(error.status === 413 ? 413 : 500, { error: error.status === 413 ? '请求过大。' : '本机请求未完成，请重试。' }); else res.end(); }
+      } catch (error) { if (!res.headersSent) send(error.status || 500, { error: error.status ? error.message : '本机请求未完成，请重试。', ...(error.retryAfter?{retryAfter:error.retryAfter}:{}) }, error.retryAfter?{'Retry-After':String(error.retryAfter)}:{}); else res.end(); }
     });
     server.requestTimeout = 15000; server.headersTimeout = 10000; server.maxHeadersCount = 40;
     await new Promise((r, j) => { server.once('error', j); server.listen(port, '127.0.0.1', () => { server.off('error', j); r(); }); });
     origin = `http://127.0.0.1:${server.address().port}`;
-    return { url: origin, bootstrapURL: `${origin}/#${bootstrap}`, root, close };
+    await privateJSON(controlPath,{version:1,url:origin,secret:controlSecret,pid:process.pid});controlWritten=true;
+    const pairing=await accessStore.issue();
+    return { url: origin, pairing, root, close };
   } catch (error) { await close(); throw error; }
 }
 
@@ -138,8 +148,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     }
     if (!await exists(new URL('../lib/standalone.js', import.meta.url))) throw Error('请先运行 npm run build 构建独立界面。');
     const app = await startStandalone(options);
-    // The only credential printed is this intentional, one-use local handoff link.
-    console.log(`跨平台账号看板已在本机启动。\n打开此链接：${app.bootstrapURL}\n数据目录：${app.root}\n按 Ctrl+C 安全退出。`);
+    // Print only the short-lived code intended for the local operator.
+    console.log(`跨平台账号看板已在本机启动。\n访问地址：${app.url}/\n首次访问配对码：${app.pairing.code}（5 分钟有效，仅可成功使用一次）\n重新取码：npm run auth:code -- --root "${app.root}"\n数据目录：${app.root}\n按 Ctrl+C 安全退出。`);
     const stop = async () => { try { await app.close(); process.exitCode = 0; } catch { console.error('本机服务退出未完成，请检查目录锁。'); process.exitCode = 1; } };
     process.once('SIGINT', stop); process.once('SIGTERM', stop);
   } catch (error) { console.error(error.message); process.exitCode = 1; }

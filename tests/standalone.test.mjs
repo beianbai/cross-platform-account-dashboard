@@ -13,8 +13,8 @@ async function setup(t) {
   return app;
 }
 async function login(app) {
-  const token = new URL(app.bootstrapURL).hash.slice(1);
-  const response = await fetch(app.url + '/session', { method: 'POST', headers: { Origin: app.url, 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) });
+  const code = app.pairing.code;
+  const response = await fetch(app.url + '/auth/pair', { method: 'POST', headers: { Origin: app.url, 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
   assert.equal(response.status, 200);
   const cookie = response.headers.get('set-cookie');
   assert.match(cookie, /HttpOnly/); assert.match(cookie, /SameSite=Strict/); assert.match(cookie, /Max-Age=/);
@@ -34,14 +34,14 @@ test('standalone protects state, bootstrap, Host and browser request origin', as
   assert.equal(await raw(app, '/', { Host: 'evil.test' }), 403);
   assert.equal((await fetch(app.url + '/', { headers: { Origin: 'https://evil.test' } })).status, 403);
   assert.equal(await raw(app, '/', { 'Sec-Fetch-Site': 'cross-site' }), 403);
-  const token = new URL(app.bootstrapURL).hash.slice(1);
+  const code = app.pairing.code;
   for (const origin of [undefined, 'null', 'https://evil.test']) {
-    const response = await fetch(app.url + '/session', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(origin ? { Origin: origin } : {}) }, body: JSON.stringify({ token }) });
+    const response = await fetch(app.url + '/auth/pair', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(origin ? { Origin: origin } : {}) }, body: JSON.stringify({ code }) });
     assert.equal(response.status, 403);
   }
   const auth = await login(app);
   assert.equal((await call(app, auth, 'state')).status, 200);
-  assert.equal((await fetch(app.url + '/session', { method: 'POST', headers: { Origin: app.url, 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) })).status, 401);
+  assert.equal((await fetch(app.url + '/auth/pair', { method: 'POST', headers: { Origin: app.url, 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) })).status, 401);
   assert.equal((await call(app, auth, 'state', undefined, { Origin: 'https://evil.test' })).status, 403);
   assert.equal(await raw(app, api + 'state', { Cookie: auth.cookie, 'Sec-Fetch-Site': 'cross-site' }), 403);
 });
@@ -126,6 +126,6 @@ test('storage location and backups require login; backup excludes local credenti
   const backup = await response.json();
   assert.deepEqual(Object.keys(backup).sort(), ['accounts','archives','settings','version']);
   assert.equal(backup.settings.provider, 'browser');
-  assert.ok(!JSON.stringify(backup).includes(JSON.parse(credential).secret));
+  assert.ok(!JSON.stringify(backup).includes(auth.cookie.split('=')[1]));
   assert.equal(await readFile(join(app.root, 'standalone-session.json'), 'utf8'), credential);
 });

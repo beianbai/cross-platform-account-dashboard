@@ -25,3 +25,9 @@ docs/development-reference.md
 
 # Local JetBrains IDE configuration
 .idea/
+
+# Standalone access credentials and recovery copies
+**/.standalone-control.json
+**/standalone-session*.json
+**/standalone-session*.tmp
+**/.standalone-control.json.*.tmp

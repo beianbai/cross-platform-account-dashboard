@@ -8,6 +8,7 @@ window.__ModuleLoader__.load({
     const GITHUB_URL = "https://github.com/beianbai/cross-platform-account-dashboard";
     // User-facing history travels with the installed client; no remote fetch or auto-update.
     const releaseNotes = [
+      { version: "0.7.0", date: "2026-10-17", items: [["新增", "独立版通过固定地址和配对码授权，支持多个浏览器分别访问与撤销。"], ["优化", "可在终端或设置中重新取码，无须重启服务；旧版访问授权需重新配对，业务数据保留。"]] },
       { version: "0.6.6", date: "2026-10-17", items: [["优化", "日常同步保存账号指标和当前已加载作品后即可完成，不再等待全部历史读完。"], ["优化", "补齐历史独立操作，保留历史断点与已有作品；读取或保存失败仍明确提示。"]] },
       { version: "0.6.5", date: "2026-10-17", items: [["修复", "返回总览与更新记录按钮的悬停留白。"], ["修复", "抖音零作品被误判为列表尚未加载。"], ["优化", "区分账号数据已更新与历史范围待确认，未知总数时展示已收录数量。"]] },
       { version: "0.6.4", date: "2026-10-17", items: [["新增", "设置中可查看、复制本机存储路径，并下载业务数据备份。"], ["新增", "备份范围和手动恢复说明，帮助保管账号与历史记录。"]] },
@@ -2088,6 +2089,7 @@ window.__ModuleLoader__.load({
                         ),
                       ),
                     ),
+                    AccessManagement && h(AccessManagement),
                     h(StorageSettings, { storage: state.storage, onNotice: setNotice }),
                     state.archives?.length > 0 &&
                       h(
@@ -2896,7 +2898,9 @@ window.__ModuleLoader__.load({
           ),
       );
     }
+    let AccessManagement = null;
     function apply(ctx) {
+      AccessManagement = ctx.accessManagement || null;
       ctx.effect(() =>
         ctx.desktopWorkbenches.register(
           {
