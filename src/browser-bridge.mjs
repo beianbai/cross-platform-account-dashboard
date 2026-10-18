@@ -1,5 +1,5 @@
 import {createServer} from 'node:http';
-import {randomBytes,timingSafeEqual} from 'node:crypto';
+import {randomBytes,randomUUID,timingSafeEqual} from 'node:crypto';
 import {mkdir,readFile,open,rename,unlink} from 'node:fs/promises';
 import {join} from 'node:path';
 import {PLATFORMS,profileURL} from './core.mjs';
@@ -10,7 +10,7 @@ export async function createBrowserBridge(root,{jobTimeout=180000}={}){
   const filename=join(root,'browser-connection.json');let saved={version:1,port:0,token:'',label:'',origin:''};
   try {saved=JSON.parse(await readFile(filename,'utf8'));if(saved.version!==1||!Number.isInteger(saved.port)||saved.port<1||saved.port>65535||!(saved.token===''||/^[a-f0-9]{64}$/.test(saved.token))||typeof saved.label!=='string'||!extensionOrigin(saved.origin))throw Error('invalid');}
   catch(e){if(e.code!=='ENOENT')throw Error('浏览器连接配置无法读取，已停止启动；账号快照未受影响。');}
-  let port=0,pair=null,pending=null,lastSeen=0,closed=false,revoking=false,queue=Promise.resolve();
+  let port=0,pair=null,completedPairId=null,pending=null,lastSeen=0,closed=false,revoking=false,queue=Promise.resolve();
   const lock=fn=>{const result=queue.then(fn);queue=result.catch(()=>{});return result;};
   async function persist(next){
     await mkdir(root,{recursive:true,mode:0o700});const tmp=join(root,`.browser-connection-${secret()}.tmp`);let file;
@@ -47,9 +47,10 @@ export async function createBrowserBridge(root,{jobTimeout=180000}={}){
       if(req.url==='/pair'){
         await lock(async()=>{
           if(closed||revoking||pending||!pair||pair.expiresAt<Date.now()||!equal(token,pair.token)){send(409,{error:'连接码已使用或正在同步，请重新连接。'});return;}
+          const pairId=pair.id;
           const label=String(body.label||'已授权浏览器').replace(/[\r\n<>]/g,'').slice(0,60);pair=null;
           revoking=true;saved={...saved,token:''};
-          try{await persist({version:1,port,token:secret(),label,origin});if(closed)return;lastSeen=Date.now();send(200,{token:saved.token,label:saved.label});}finally{revoking=false;}
+          try{await persist({version:1,port,token:secret(),label,origin});if(closed)return;completedPairId=pairId;lastSeen=Date.now();send(200,{token:saved.token,label:saved.label});}finally{revoking=false;}
         });return;
       }
       // Recheck after body awaits: a concurrent revoke must invalidate in-flight requests.
@@ -74,11 +75,11 @@ export async function createBrowserBridge(root,{jobTimeout=180000}={}){
   catch(e){server.close();throw e;}
   server.on('error',()=>{cancel('本机浏览器连接中断，请重试。');});server.unref();
   return {
-    status(){return {available:!closed,paired:!!saved.token,online:!!saved.token&&Date.now()-lastSeen<75000,label:saved.label,port};},
-    beginPair(){if(closed||revoking||pending)throw Error('正在读取或连接已关闭，请稍后重试。');pair={token:secret(),expiresAt:Date.now()+120000};return {code:`dsh-social://127.0.0.1:${port}#${pair.token}`,expiresAt:pair.expiresAt};},
+    status(){return {available:!closed,paired:!!saved.token,online:!!saved.token&&Date.now()-lastSeen<75000,label:saved.label,port,completedPairId};},
+    beginPair(){if(closed||revoking||pending)throw Error('正在读取或连接已关闭，请稍后重试。');pair={id:randomUUID(),token:secret(),expiresAt:Date.now()+120000};return {id:pair.id,code:`dsh-social://127.0.0.1:${port}#${pair.token}`,expiresAt:pair.expiresAt};},
     revoke(){
       if(closed||revoking)return Promise.reject(Error('连接正在关闭或更新，请稍后重试。'));
-      revoking=true;pair=null;saved={...saved,token:'',label:'',origin:''};lastSeen=0;cancel('浏览器授权已撤销，旧数据保留。');
+      revoking=true;pair=null;completedPairId=null;saved={...saved,token:'',label:'',origin:''};lastSeen=0;cancel('浏览器授权已撤销，旧数据保留。');
       return lock(async()=>{try{await persist(saved);}finally{revoking=false;}});
     },
     run({platform,url='',automatic=false,resume=false,onProgress,onBatch,collection}){

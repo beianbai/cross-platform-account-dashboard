@@ -8,6 +8,7 @@ window.__ModuleLoader__.load({
     const GITHUB_URL = "https://github.com/beianbai/cross-platform-account-dashboard";
     // User-facing history travels with the installed client; no remote fetch or auto-update.
     const releaseNotes = [
+      { version: "0.7.2", date: "2026-10-18", items: [["优化", "连接弹窗与设置使用清晰的浏览器状态卡片，扩展下载入口更醒目。"], ["修复", "浏览器授权成功后显示确认提示并收起已使用的连接码。"]] },
       { version: "0.7.1", date: "2026-10-18", items: [["优化", "浏览器连接统一使用扩展，简化连接界面，移除连接方式选择与浏览器命令配置。"]] },
       { version: "0.7.0", date: "2026-10-17", items: [["新增", "独立版通过固定地址和配对码授权，支持多个浏览器分别访问与撤销。"], ["优化", "可在终端或设置中重新取码，无须重启服务；旧版访问授权需重新配对，业务数据保留。"]] },
       { version: "0.6.6", date: "2026-10-17", items: [["优化", "日常同步保存账号指标和当前已加载作品后即可完成，不再等待全部历史读完。"], ["优化", "补齐历史独立操作，保留历史断点与已有作品；读取或保存失败仍明确提示。"]] },
@@ -436,6 +437,8 @@ window.__ModuleLoader__.load({
 .psw .psw-field{color:var(--ink)}.psw input:not([type=checkbox]),.psw textarea{background:var(--field);border-color:var(--line)}.psw input::placeholder,.psw textarea::placeholder{color:var(--muted)}.psw input:hover:not(:disabled),.psw textarea:hover{border-color:var(--hover-border)}.psw input[aria-invalid=true]{border-color:var(--danger)}.psw .psw-schedule{background:var(--paper)}.psw .psw-zone-options{background:var(--card);border-color:var(--hover-border);box-shadow:0 12px 28px #17244820}.psw .psw-zone-options button[aria-selected=true]{background:var(--accent-soft);color:var(--accent)}.psw .psw-dialog{background:var(--card);border-color:var(--line);backdrop-filter:none;box-shadow:0 24px 80px #1c29463d}.psw .psw-dialoghead{background:var(--card);backdrop-filter:none}.psw .psw-modal-overlay{background:#26345155;backdrop-filter:blur(4px)}.psw[data-theme=dark] .psw-modal-overlay{background:#050a10aa}.psw .psw-option{background:var(--field)}
 .psw .psw-theme-toggle{position:relative;width:38px;height:38px;min-height:38px;padding:0;border-radius:50%;background:var(--paper);border-color:var(--line);overflow:hidden}.psw .psw-theme-toggle svg{position:absolute;transition:transform .32s var(--ease),opacity .2s;color:var(--muted)}.psw .psw-theme-toggle svg{opacity:0;transform:rotate(-70deg) scale(.5)}.psw .psw-theme-toggle[data-mode=light] .psw-theme-sun,.psw .psw-theme-toggle[data-mode=dark] .psw-theme-moon,.psw .psw-theme-toggle[data-mode=system] .psw-theme-system{opacity:1;transform:rotate(0) scale(1)}.psw .psw-theme-toggle[data-mode=dark] .psw-theme-moon,.psw .psw-theme-toggle[data-mode=system] .psw-theme-system{color:var(--accent)}.psw .psw-theme-toggle:hover{background:var(--accent-soft)}
 .psw .psw-select{position:relative;display:block;min-width:0;margin-top:7px}.psw .psw-select-trigger{display:flex;width:100%;justify-content:space-between;min-height:44px;text-align:left;background:var(--field);padding:10px 12px;border-color:var(--line);font-size:13px;font-weight:400;white-space:normal}.psw .psw-select-trigger>span{min-width:0;overflow-wrap:anywhere}.psw .psw-select-trigger[aria-expanded=true]{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}.psw .psw-select-trigger>svg{color:var(--muted);transition:transform .18s var(--ease)}.psw .psw-select-trigger[aria-expanded=true]>svg{transform:rotate(180deg)}.psw .psw-select-options{position:absolute;left:0;right:0;display:block;z-index:8;padding:5px;overflow:auto;overscroll-behavior:contain;background:var(--card);border:1px solid var(--hover-border);border-radius:10px;box-shadow:0 12px 28px #17244820}.psw .psw-select-options button{width:100%;justify-content:space-between;text-align:left;font-size:13px;font-weight:400;white-space:normal;padding:10px;border:0;border-radius:6px;background:transparent}.psw .psw-select-options button[data-active=true]{background:var(--soft)}.psw .psw-select-options button[aria-selected=true]{color:var(--accent);background:var(--accent-soft)}
+.psw .psw-connection-card{display:flex;align-items:center;gap:14px;padding:18px;border:1px solid var(--line);border-radius:14px;background:var(--card);min-width:0}.psw .psw-connection-icon{display:flex;align-items:center;justify-content:center;width:46px;height:46px;flex-shrink:0;border-radius:12px;background:var(--soft);color:var(--muted)}.psw .psw-connection-copy{flex:1;min-width:0}.psw .psw-connection-title{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap}.psw .psw-connection-title strong{font-size:16px;font-weight:650;overflow-wrap:anywhere;min-width:0}.psw .psw-connection-badge{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:3px 9px;font-size:11px;font-weight:600;line-height:1.5;background:var(--soft);color:var(--muted);white-space:nowrap}.psw .psw-connection-copy p{font-size:12px;color:var(--muted);margin:7px 0 0;line-height:1.65}.psw .psw-connection-card[data-status=online]{border-color:var(--success-line)}.psw .psw-connection-card[data-status=online] .psw-connection-icon,.psw .psw-connection-card[data-status=online] .psw-connection-badge{color:var(--green);background:var(--success-bg)}.psw .psw-connection-card[data-status=offline] .psw-connection-icon,.psw .psw-connection-card[data-status=offline] .psw-connection-badge{color:var(--warning-ink);background:var(--warning-bg)}.psw .psw-connection-card[data-status=unavailable] .psw-connection-badge{color:var(--danger);background:var(--error-bg)}.psw .psw-connection-action{flex-shrink:0}.psw .psw-connection-card+.psw-note{margin-top:12px}.psw a.psw-download-extension{display:inline-flex;align-items:center;gap:7px;min-height:40px;padding:7px 12px;border:1px solid var(--hover-border);border-radius:9px;background:var(--accent-soft);color:var(--accent);font-weight:600;text-decoration:none}.psw a.psw-download-extension:hover{border-color:var(--accent);text-decoration:underline}.psw .psw-install-hint{margin:7px 0 0;font-size:12px;line-height:1.7}.psw .psw-instructions li::marker{font-weight:600;color:var(--ink)}
+@container(max-width:600px){.psw .psw-connection-card{flex-wrap:wrap;padding:15px;gap:12px}.psw .psw-connection-action{width:100%;padding-top:2px}.psw .psw-connection-action button{width:100%}.psw .psw-connection-icon{width:40px;height:40px}.psw .psw-connection-title{align-items:flex-start;flex-direction:column;gap:6px}}
 .psw .psw-toast-anchor{position:relative;flex-shrink:0;height:0;z-index:10;pointer-events:none}.psw .psw-toast-layer{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:max-content;max-width:calc(100% - 32px)}.psw .psw-toast-layer .psw-result{pointer-events:auto;margin:0;max-width:560px;box-shadow:0 8px 26px #17244820;overflow-wrap:anywhere}.psw .psw-result.warning{color:var(--warning-ink);background:var(--warning-bg);border-color:var(--warning-line)}.psw .psw-result.error{color:var(--danger);background:var(--error-bg);border-color:var(--error-line)}.psw .psw-result button{color:inherit}.psw .psw-result>span{min-width:0}.psw .psw-dialog{display:flex;flex-direction:column;overflow:hidden}.psw .psw-dialoghead{flex-shrink:0}.psw .psw-dialogbody{min-height:0;overflow:auto}.psw .psw-back-top{position:absolute;right:22px;bottom:20px;z-index:4;font-size:12px;min-height:38px;padding:7px 12px;box-shadow:var(--shadow);color:var(--muted)}.psw .psw-header-back{font-size:12px}.psw .psw-feedback-link{display:inline-flex;align-items:center;min-height:44px;padding:8px 4px;font-size:13px}.psw .psw-help-links{display:flex;gap:20px;align-items:center;margin-bottom:12px}.psw .psw-diagnostics{font-size:12px;line-height:1.8;resize:vertical}.psw .psw-top-actions{flex-wrap:wrap}.psw .psw-dialog .psw-toast-layer{max-width:calc(100% - 24px)}
 @container(max-width:520px){.psw .psw-top-actions{justify-content:flex-start}.psw .psw-back-top{right:16px;bottom:16px}.psw .psw-toast-layer{max-width:calc(100% - 24px)}}
 @keyframes psw-notice-expire{0%{opacity:0;transform:translateY(-4px)}5%,94%{opacity:1;transform:none}100%{opacity:0;transform:translateY(-3px)}}
@@ -1430,6 +1433,19 @@ window.__ModuleLoader__.load({
               h("li", null, "重新启动并核对账号和历史记录。备份中的同步计划也会恢复；需要时重新连接浏览器。")),
             h("p", null, "恢复会替换当前业务数据，不会合并备份之后新增的记录。"))));
     }
+    function ConnectionCard({ connection, children }) {
+      const status = connection?.available === false ? "unavailable" : connection?.paired ? connection.online ? "online" : "offline" : "unpaired";
+      const labels = { online: "已连接", offline: "已授权 · 离线", unpaired: "等待授权", unavailable: "服务不可用" };
+      const descriptions = { online: "浏览器已就绪，可以开始同步。", offline: "打开已授权浏览器，并确认扩展已启用。", unpaired: "先安装扩展，再用连接码授权这台工作台。", unavailable: "本机连接服务未启动，请重启工作台后重试。" };
+      return h("div", { className: "psw-connection-card", "data-status": status },
+        h("span", { className: "psw-connection-icon" }, h(Icon, { name: "browser", size: 24 })),
+        h("div", { className: "psw-connection-copy" },
+          h("div", { className: "psw-connection-title" },
+            h("strong", null, connection?.paired ? connection.label || "已授权浏览器" : "尚未连接浏览器"),
+            h("span", { className: "psw-connection-badge" }, h(Icon, { name: status === "online" ? "check" : status === "unavailable" ? "alert" : "clock", size: 14 }), labels[status])),
+          h("p", null, descriptions[status])),
+        children && h("div", { className: "psw-connection-action" }, children));
+    }
     function Panel() {
       const [state, setState] = React.useState(null),
         [error, setError] = React.useState(""),
@@ -1454,7 +1470,7 @@ window.__ModuleLoader__.load({
         [guideMode, setGuideMode] = React.useState(savedGuide),
         [showTop, setShowTop] = React.useState(false),
         [copyError, setCopyError] = React.useState("");
-      const noticeSerial = React.useRef(0);
+      const noticeSerial = React.useRef(0), pairingAttempt = React.useRef(null);
       const setNotice = (message, tone = "success") => setNoticeState(message ? { message, tone, id: ++noticeSerial.current } : null);
       const theme = themeMode === "system" ? (systemDark ? "dark" : "light") : themeMode;
       React.useEffect(() => {
@@ -1547,6 +1563,12 @@ window.__ModuleLoader__.load({
                 if (outcome.automatic !== true) setNotice(`${s.platforms?.find(p => p.id === id)?.label || id}同步未完成：${outcome.error || outcome.lastResult || "请检查账号旁的提示后重试。"}`, ["needs_login", "needs_attention"].includes(outcome.phase) ? "warning" : "error");
                 delete manualJobs.current[id];
               }
+            }
+            const attempt = pairingAttempt.current;
+            if (attempt && s.browserConnection?.paired && s.browserConnection.completedPairId === attempt.id) {
+              pairingAttempt.current = null;
+              setPair(null);
+              setNotice(`授权成功，${s.browserConnection.label || "浏览器"}${s.browserConnection.online ? " 已连接，可以开始同步。" : " 暂时离线，请打开浏览器并启用扩展。"}`, s.browserConnection.online ? "success" : "warning");
             }
             setState(s);
           }
@@ -1978,18 +2000,9 @@ window.__ModuleLoader__.load({
                       h(
                         "div",
                         { className: "psw-setting-body" },
-                        h(
-                          "p",
-                          null,
-                          connection?.paired
-                            ? `${connection.label || "已授权浏览器"} · ${connection.online ? "在线" : "离线"}`
-                            : "尚未授权常用浏览器",
-                        ),
-                        btn(
-                          "管理连接",
-                          () => setModal("connection"),
-                          "browser",
-                        ),
+                        h(ConnectionCard, { connection }, btn(
+                          "管理连接", () => setModal("connection"), "browser",
+                        )),
                       ),
                     ),
                     h(
@@ -2680,13 +2693,7 @@ window.__ModuleLoader__.load({
                         h(
                           React.Fragment,
                           null,
-                          h(
-                            "p",
-                            { style: { marginTop: 18 } },
-                            connection?.paired
-                              ? `${connection.label || "已授权浏览器"} · ${connection.online ? "连接正常" : "暂未连接，请打开浏览器与连接器"}`
-                              : "授权后，使用浏览器已有的登录状态读取账号。",
-                          ),
+                          h(ConnectionCard, { connection }),
                           h("p", { className: "psw-note" }, "浏览器连接正常不代表各平台已登录；同步时会分别检查。"),
                           h(
                             "ol",
@@ -2697,6 +2704,7 @@ window.__ModuleLoader__.load({
                               h(
                                 "a",
                                 {
+                                  className: "psw-download-extension",
                                   href: new URL(
                                     "api/personal-social/browser/download",
                                     document.baseURI,
@@ -2704,9 +2712,9 @@ window.__ModuleLoader__.load({
                                   download:
                                     "personal-social-browser-connector.zip",
                                 },
-                                "下载本地连接器",
+                                h(Icon, { name: "download", size: 17 }), "点击下载浏览器扩展",
                               ),
-                              "，解压后在 Chrome / Edge 的扩展管理页加载 chromium 文件夹。",
+                              h("p", { className: "psw-install-hint" }, "下载 ZIP 安装包，解压后在 Chrome / Edge 扩展管理页加载 chromium 文件夹。"),
                             ),
                             h(
                               "li",
@@ -2724,7 +2732,7 @@ window.__ModuleLoader__.load({
                                   "browser/pair",
                                   {},
                                 );
-                                if (result) { setPair(result); setNotice("连接码已生成，请在浏览器连接器中配对"); }
+                                if (result) { pairingAttempt.current = result.id ? { id: result.id } : null; setPair(result); setNotice("连接码已生成，请在浏览器连接器中配对"); }
                               },
                               "browser",
                               "psw-primary",

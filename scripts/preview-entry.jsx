@@ -128,8 +128,8 @@ let state = {
   browserConnection: {
     available: true,
     paired: params.has("connected"),
-    online: params.has("connected"),
-    label: "Chrome",
+    online: params.has("connected") && !params.has("offline"),
+    label: params.get("browser-label") || "Chrome",
   },
 };
 if (params.has("populated"))
@@ -173,14 +173,19 @@ if (params.has("login"))
     url: "",
     lastResult: "请在原浏览器登录抖音，完成后继续同步。",
   };
+let previewPairId = null;
+window.__pswPreview = { completePair() { state.browserConnection = { ...state.browserConnection, paired: true, online: true, completedPairId: previewPairId }; } };
 window.fetch = async (url, opts) => {
   const path = String(url),
     body = opts?.body ? JSON.parse(opts.body) : {};
-  if (path.endsWith("/browser/pair"))
+  if (path.endsWith("/browser/pair")) {
+    previewPairId = crypto.randomUUID();
     return Response.json({
+      id: previewPairId,
       code: "dsh-social://127.0.0.1:12345#" + "a".repeat(64),
       expiresAt: Date.now() + 120000,
     });
+  }
   if (path.endsWith("/browser/revoke")) {
     state.browserConnection.paired = false;
     state.browserConnection.online = false;

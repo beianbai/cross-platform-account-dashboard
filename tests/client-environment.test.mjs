@@ -193,7 +193,7 @@ function fixture({ paired = false, hidden = false, phase = null, syncFailure = f
         ok: true,
         json: async () =>
           path.endsWith("/browser/pair")
-            ? { code: "test-connection-code", expiresAt: Date.now() + 120000 }
+            ? { id: "test-pair-id", code: "test-connection-code", expiresAt: Date.now() + 120000 }
             : state,
       };
     },
@@ -663,7 +663,7 @@ test("connection dialog directly offers extension installation and pairing witho
 test("settings displays extension status without a provider preference", () => {
   const app = fixture({ paired: true });
   button(app.render(), "设置").props.onClick();
-  assert.match(text(app.render()), /Chrome · 在线/);
+  assert.match(text(app.render()), /Chrome已连接/);
   assert.doesNotMatch(text(app.render()), /Ego|自动选择|采集通路/);
   assert(!nodes(app.render()).some(n => n.props["aria-label"] === "采集通路"));
   button(app.render(), "管理连接").props.onClick();
@@ -1319,4 +1319,42 @@ test('overview and account refresh do not resume an unfinished history task',asy
  app.state.syncByPlatform.douyin={phase:'complete',running:false};await app.poll();
  button(app.render(),'查看详情').props.onClick();await button(app.render(),'同步账号').props.onClick();
  assert.equal(app.calls.findLast(c=>c.path.endsWith('/sync')).body.mode,'refresh');assert.equal(app.calls.findLast(c=>c.path.endsWith('/sync')).body.resume,undefined);
+});
+
+for (const paired of [false, true]) test(`pairing confirms only the new authorization once (previously paired: ${paired})`, async () => {
+  const app = fixture({ paired });
+  button(app.render(), "浏览器连接").props.onClick();
+  await button(app.render(), "生成连接码").props.onClick();
+  await app.poll();
+  assert.doesNotMatch(text(app.render()), /授权成功/);
+  app.state.browserConnection = { available: true, paired: true, online: true, label: "Chrome", completedPairId: "unrelated-pair" };
+  await app.poll();
+  assert.doesNotMatch(text(app.render()), /授权成功/);
+  app.state.browserConnection.completedPairId = "test-pair-id";
+  await app.poll();
+  assert.match(text(app.render()), /授权成功，Chrome 已连接/);
+  assert(!nodes(app.render()).some(n => n.type === "textarea" && n.props.value === "test-connection-code"));
+  button(app.render(), "关闭通知").props.onClick();
+  await app.poll();
+  assert.doesNotMatch(text(app.render()), /授权成功/);
+});
+test("connection card distinguishes online, offline and unpaired and labels the download action", () => {
+  const app = fixture({ paired: true });
+  button(app.render(), "浏览器连接").props.onClick();
+  const card = () => nodes(app.render()).find(n => n.props.className?.includes("psw-connection-card"));
+  assert.match(text(card()), /已连接/);
+  assert.equal(card().props["data-status"], "online");
+  app.state.browserConnection.online = false;
+  assert.match(text(card()), /已授权 · 离线/);
+  app.state.browserConnection.paired = false;
+  assert.match(text(card()), /尚未连接浏览器/);
+  assert(nodes(app.render()).some(n => n.type === "a" && text(n).includes("点击下载浏览器扩展")));
+});
+
+test("late pairing confirmation reports offline honestly", async () => {
+ const app=fixture();button(app.render(),"浏览器连接").props.onClick();
+ await button(app.render(),"生成连接码").props.onClick();
+ app.state.browserConnection={paired:true,online:false,label:"Chrome",completedPairId:"test-pair-id"};
+ await app.poll();assert.match(text(app.render()),/授权成功，Chrome 暂时离线/);
+ assert.doesNotMatch(text(app.render()),/已连接，可以开始同步/);
 });

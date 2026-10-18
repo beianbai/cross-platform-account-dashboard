@@ -60,3 +60,19 @@ test('unpaired batch requests cannot bypass extension authorization',async t=>{
  const {bridge}=await setup(t),port=bridge.status().port;
  assert.equal((await call(port,'0'.repeat(64),'/batch',{id:'obsolete-local-session',sequence:0,raw:{works:[]}},{Origin:''})).status,401);
 });
+
+test('pair completion identifies the successful attempt even when the browser label stays the same', async t=>{
+ const {bridge}=await setup(t);
+ for(let i=0;i<2;i++){
+  const attempt=bridge.beginPair(),code=new URL(attempt.code);
+  assert.equal(typeof attempt.id,'string');
+  assert.notEqual(attempt.id,code.hash.slice(1));
+  assert.notEqual(bridge.status().completedPairId,attempt.id);
+  assert.equal((await call(code.port,'0'.repeat(64),'/pair',{label:'Chrome'})).status,401);
+  assert.notEqual(bridge.status().completedPairId,attempt.id);
+  const response=await call(code.port,code.hash.slice(1),'/pair',{label:'Chrome'});
+  assert.equal(response.status,200);
+  assert.equal(bridge.status().completedPairId,attempt.id);
+ }
+ await bridge.revoke();assert.equal(bridge.status().completedPairId,null);
+});
