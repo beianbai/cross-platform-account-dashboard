@@ -71,7 +71,7 @@ pnpm start
 
 For Chrome / Edge:
 
-1. Click “连接浏览器” (Connect browser), choose “浏览器扩展” (Browser extension), then download and extract the local connector.
+1. Click “连接浏览器” (Connect browser), then download and extract the local connector.
 2. Open `chrome://extensions` or `edge://extensions`, enable Developer mode, and load the extracted `chromium` folder as an unpacked extension.
 3. Generate a connection code in the dashboard, paste it into the connector from your browser toolbar, and authorize it. Codes **expire after two minutes and work only once**.
 
@@ -102,7 +102,6 @@ The Release asset `cross-platform-account-dashboard.tgz` is for **DSH Desktop**.
 | Chrome 120+ / current Edge | Load and pair the local Chromium connector |
 | Other Chromium browsers | Require MV3, scripting, alarms, and local extensions; not individually verified |
 | Firefox 115+ | Temporarily load `firefox/manifest.json`; reload it after restarting Firefox |
-| Ego Lite | An optional adapter if already installed; not required |
 | Safari / mobile browsers / managed browsers that block local extensions | No collection adapter is available; existing cached data can still be viewed |
 
 Only one extension connection is authorized at a time; pairing again replaces the previous credentials. After updating the dashboard, [update the browser connector too — 中文](extension/README.md#060-更新).

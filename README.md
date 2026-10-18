@@ -71,7 +71,7 @@ pnpm start
 
 以 Chrome / Edge 为例：
 
-1. 在看板点「连接浏览器」，选择「浏览器扩展」，下载并解压本地连接器。
+1. 在看板点「连接浏览器」，下载并解压本地连接器。
 2. 打开 `chrome://extensions` 或 `edge://extensions`，启用开发者模式，加载解压后的 `chromium` 文件夹。
 3. 回看板生成连接码，在浏览器工具栏的连接器中粘贴并授权。连接码 **2 分钟有效、仅能使用一次**。
 
@@ -102,7 +102,6 @@ Release 中的 `cross-platform-account-dashboard.tgz` 用于安装到 **DSH Desk
 | Chrome 120+ / 当前版 Edge | 加载本地 Chromium 连接器并配对 |
 | 其他 Chromium 浏览器 | 需支持 MV3、scripting、alarms 和本地扩展；未逐一实机认证 |
 | Firefox 115+ | 临时加载 `firefox/manifest.json`；浏览器重启后需重新加载 |
-| Ego Lite | 已安装时可作为可选适配器，不是必需依赖 |
 | Safari / 移动浏览器 / 禁止本地扩展的受管浏览器 | 暂无采集适配器，仍可查看已有缓存 |
 
 一次只授权一个扩展连接，重新配对会替换旧授权。看板升级后需[更新浏览器连接器](extension/README.md#060-更新)。
