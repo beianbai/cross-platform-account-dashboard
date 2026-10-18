@@ -1,6 +1,6 @@
 {
   "name": "dsh-workbench-personal-social-local",
-  "version": "0.6.6",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "description": "小红书、抖音、哔哩哔哩、X，一个看板查看账号与作品。支持定时同步、每日趋势和本地历史记录，可扩展更多平台。",
@@ -58,7 +58,9 @@
     "check": "node scripts/check-workbench-package.mjs",
     "build:standalone": "node scripts/build-standalone.mjs",
     "prestart": "npm run build",
-    "start": "node standalone/server.mjs"
+    "start": "node standalone/server.mjs",
+    "auth:code": "node standalone/auth-cli.mjs code",
+    "auth:reset": "node standalone/auth-cli.mjs reset"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "~3.18.4",

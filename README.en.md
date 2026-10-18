@@ -47,9 +47,11 @@ npm install
 npm start
 ```
 
-Startup builds the interface and browser connectors automatically. Open the **full local URL printed in the terminal**. You should see the dashboard, titled “跨平台账号看板”, and an option to add a platform. The first-use URL contains local authorization: do not share it. Its authorization fragment is removed from the address bar after opening.
+Startup builds the interface and browser connectors automatically. Open the fixed local address printed in the terminal (default `http://127.0.0.1:43120/`) in any browser and enter the terminal's pairing code. Opening the address alone does not consume a code.
 
-The default address is `http://127.0.0.1:43120`; use the terminal URL for your first visit. Later, the same browser can open the base address directly. Press `Ctrl+C` to stop the service and scheduled syncing.
+Each code expires after **five minutes** and can be redeemed **once**. To authorize another browser, generate a new code in “设置 → 访问授权” (Settings → Access authorization), or run `npm run auth:code` in another terminal from the project directory. No service restart is needed; pass the same `-- --root "data directory"` if you use a custom directory.
+
+Browsers receive independent sessions and share the same local business data. Sessions can be revoked individually and survive restarts with the same data directory. They expire after 90 days of inactivity; clearing cookies or closing an incognito session may require pairing again. Upgrading from the old shared login requires pairing again, while preserving business data. Keep the service running; `Ctrl+C` stops it and scheduled syncing.
 
 <details>
 <summary>Start the standalone version with pnpm</summary>
