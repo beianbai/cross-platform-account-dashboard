@@ -10,7 +10,7 @@ const code = await readFile(
 const value = (n) => ({ value: n, display: String(n), approximate: false });
 const day = (n) =>
   new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
-function fixture({ paired = false, hidden = false, phase = null, syncFailure = false, syncGate = null, storedTheme = null, systemDark = false, requestFailures = {}, empty = false, storedGuide = null, storageUnavailable = false, initialLoading = false } = {}) {
+function fixture({ paired = false, hidden = false, phase = null, syncFailure = false, syncGate = null, storedTheme = null, systemDark = false, requestFailures = {}, empty = false, storedGuide = null, storageUnavailable = false, initialLoading = false, strictHost = false, accessManagement = null } = {}) {
   const account = {
     platform: "douyin",
     name: "林间的慢镜头",
@@ -150,7 +150,7 @@ function fixture({ paired = false, hidden = false, phase = null, syncFailure = f
         load(module) {
           module
             .factory(() => React)
-            .apply({
+            .apply(new Proxy({
               effect: (fn) => fn(),
               desktopWorkbenches: {
                 register(options, p) {
@@ -158,7 +158,12 @@ function fixture({ paired = false, hidden = false, phase = null, syncFailure = f
                   Panel = p;
                 },
               },
-            });
+            }, {
+              get(target, property) {
+                if (strictHost && !(property in target)) throw new Error(`cannot get property "${String(property)}" without inject`);
+                return target[property];
+              },
+            }), { accessManagement });
         },
       },
     },
@@ -259,6 +264,18 @@ function field(tree, label) {
   assert(l, `missing field ${label}`);
   return nodes(l).find((n) => ["input", "select", "textarea"].includes(n.type));
 }
+test("desktop activation renders accounts without requesting standalone-only host services", () => {
+  const app = fixture({ strictHost: true });
+  assert.match(text(app.render()), /林间的慢镜头/);
+  button(app.render(), "设置").props.onClick();
+  assert.match(text(app.render()), /自动同步/);
+});
+test("standalone settings retain the access management component passed by their entry point", () => {
+  const accessManagement = () => ({ type: "section", props: {}, children: ["Browser access controls"] });
+  const app = fixture({ strictHost: true, accessManagement });
+  button(app.render(), "设置").props.onClick();
+  assert.match(text(app.render()), /Browser access controls/);
+});
 test("overview renders only bound visible accounts and cached detail remains usable offline", () => {
   const app = fixture(),
     tree = app.render();

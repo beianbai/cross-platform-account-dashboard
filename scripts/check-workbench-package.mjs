@@ -8,7 +8,7 @@ const patch=await readFile(new URL('cordis.patch.yml',root),'utf8');assert(patch
 const source=await readFile(new URL(p.exports['./client'],root),'utf8');let registration;
 new vm.Script(source).runInNewContext({window:{__ModuleLoader__:{load(v){registration=v;}}}});
 assert.equal(registration.id,p.name);const client=registration.factory(()=>({createElement(){}}));let entry;
-client.apply({effect:fn=>fn(),desktopWorkbenches:{register(value,panel){entry=value;assert.equal(typeof panel,'function');return ()=>{};}}});
+client.apply(new Proxy({effect:fn=>fn(),desktopWorkbenches:{register(value,panel){entry=value;assert.equal(typeof panel,'function');return ()=>{};}}},{get(target,key){assert(key in target,`Client requested an undeclared host service: ${String(key)}`);return target[key];}}));
 assert.match(entry.screenshot,/^data:image\/png;base64,iVBOR/);assert.equal(entry.repository,p.repository.url);assert(!('id'in entry));assert.equal(entry.customFrame,true);
 const server=await import(new URL(p.main,root));assert.equal(typeof server.apply,'function');assert(server.Config);assert(server.inject.includes('connection'));
 assert(!p.scripts.postinstall&&!p.scripts.preinstall);assert.equal(p.private,true);

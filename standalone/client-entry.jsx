@@ -9,7 +9,7 @@ installAccessFetch();
 let Workbench;
 window.__ModuleLoader__={load(module){
   const client=module.factory(name=>{if(name==='react')return React;throw Error(`不支持的界面模块：${name}`);});
-  client.apply({effect(fn){fn();},accessManagement:AccessSettings,desktopWorkbenches:{register(options,Panel){Workbench=Panel;return()=>{};}}});
+  client.apply({effect(fn){fn();},desktopWorkbenches:{register(options,Panel){Workbench=Panel;return()=>{};}}},{accessManagement:AccessSettings});
 }};
 await import('../src/client.js');
 function App(){
