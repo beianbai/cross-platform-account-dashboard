@@ -10,7 +10,7 @@ test('extension accepts only approved platform pages and task data, never remote
  assert(isPlatformURL('xiaohongshu','https://www.xiaohongshu.com/user/profile/ABCDEF0123456789ABCDEF01'));
  assert(validJob({id:'a'.repeat(64),platform:'douyin',url:''}));assert.equal(validJob({id:'x',platform:'douyin',url:''}),false);assert.equal(validJob({id:'a'.repeat(64),platform:'other',url:''}),false);
 });
-test('real shared collector runs through a browser scripting adapter without Ego APIs',async()=>{
+test('shared collector reads through the browser extension scripting adapter',async()=>{
  const root={innerText:'粉丝 3 关注 4 获赞 8 抖音号：fixture-123',querySelector:()=>({innerText:'模拟浏览器账号'}),parentElement:{querySelector:()=>({src:''})}};
  const document={querySelector:selector=>selector==='[data-e2e="user-info"]'?root:selector==='[data-e2e="user-info-fans"]'?{innerText:'粉丝 3'}:selector==='[data-e2e="user-post-list"]'?{}:null,querySelectorAll:selector=>selector==='[role="tab"]'?[{innerText:'作品 0'}]:[]};
  let url='about:blank';const injections=[];

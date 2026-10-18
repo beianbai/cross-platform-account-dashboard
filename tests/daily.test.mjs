@@ -11,7 +11,7 @@ const legacy=()=>({version:1,accounts:{douyin:{...snapshot(),history:[{at:'2026-
 test('v1 migration groups by saved timezone and never backfills unknown historical metrics',()=>{
   const old=legacy(),copy=structuredClone(old);assert.equal(typeof core.migrateState,'function');
   const state=core.migrateState(old,'Asia/Shanghai');
-  assert.deepEqual(old,copy);assert.equal(state.version,2);assert.equal(state.settings.provider,'auto');
+  assert.deepEqual(old,copy);assert.equal(state.version,2);assert.equal(state.settings.provider,'browser');
   assert.equal(state.settings.platforms.douyin.schedule.enabled,false);assert.equal(state.settings.platforms.douyin.visible,true);
   assert.deepEqual(state.accounts.douyin.history,old.accounts.douyin.history);
   assert.deepEqual(state.accounts.douyin.daily.map(p=>[p.date,p.fans.value,p.workCount,p.likes]),[['2026-10-10',1,null,null],['2026-10-11',3,null,null]]);
@@ -98,4 +98,50 @@ test('unbind clears recovery route, last status and retry count so the next iden
 test('unbind also clears pending recovery when the initial account binding never completed',()=>{
   const state=core.emptyState('Asia/Shanghai');Object.assign(state.settings.platforms.douyin,{recovery:{provider:'ego',spaceId:42,url:''},lastStatus:'login_required',retryCount:1});
   const unbound=core.unbindAccount(state,'douyin');assert.equal(unbound.archives.length,0);assert.equal(unbound.settings.platforms.douyin.recovery,null);assert.equal(unbound.settings.platforms.douyin.retryCount,0);
+});
+
+for(const provider of ['auto','ego'])test(`legacy ${provider} settings migrate without losing account data or schedules`,async()=>{
+  let old=core.applySnapshot(core.emptyState('Asia/Shanghai'),'douyin',snapshot());
+  old.archives=[{...structuredClone(old.accounts.douyin),archivedAt:'2026-10-12T00:00:00.000Z'}];
+  old.settings.provider=provider;
+  const settings=old.settings.platforms.douyin;
+  Object.assign(settings,{recovery:{provider:'ego',spaceId:42,url:old.accounts.douyin.url},pausedReason:'needs_login',lastStatus:'needs_login',lastResult:'old login',retryCount:2});
+  settings.schedule.enabled=true;
+  const original=structuredClone(old),root=await mkdtemp(join(tmpdir(),'extension-migrate-'));
+  await writeFile(join(root,'accounts.json'),JSON.stringify(old));
+  const migrated=await loadState(root);
+  assert.equal(migrated.settings.provider,'browser');
+  assert.deepEqual(migrated.accounts,original.accounts);assert.deepEqual(migrated.archives,original.archives);
+  assert.deepEqual(migrated.settings.platforms.douyin.schedule,settings.schedule);
+  assert.equal(migrated.settings.platforms.douyin.recovery,null);assert.equal(migrated.settings.platforms.douyin.pausedReason,null);
+  assert.equal(migrated.settings.platforms.douyin.lastStatus,null);assert.equal(migrated.settings.platforms.douyin.lastResult,null);assert.equal(migrated.settings.platforms.douyin.retryCount,0);
+  assert(Date.parse(migrated.settings.platforms.douyin.nextRunAt)>Date.now());
+  const persisted=await readFile(join(root,'accounts.json'),'utf8');assert.deepEqual(JSON.parse(persisted),migrated);
+  assert.deepEqual(await loadState(root),migrated);assert.equal(await readFile(join(root,'accounts.json'),'utf8'),persisted);
+  assert.deepEqual(old,original);
+});
+test('migration preserves intentional pauses and existing extension login state',()=>{
+  const old=core.emptyState('Asia/Shanghai');old.settings.provider='ego';
+  Object.assign(old.settings.platforms.douyin,{pausedReason:'user_paused',lastStatus:'paused',lastResult:'已暂停',recovery:{provider:'ego',spaceId:42,url:''}});
+  const migrated=core.migrateState(old);assert.equal(migrated.settings.platforms.douyin.recovery,null);
+  assert.equal(migrated.settings.platforms.douyin.pausedReason,'user_paused');assert.equal(migrated.settings.platforms.douyin.lastStatus,'paused');
+  const browser=core.emptyState('Asia/Shanghai');browser.settings.provider='browser';
+  Object.assign(browser.settings.platforms.douyin,{pausedReason:'needs_login',lastStatus:'needs_login',lastResult:'请登录'});
+  assert.deepEqual(core.migrateState(browser),browser);
+  browser.settings.provider='auto';const auto=core.migrateState(browser);assert.deepEqual(auto.settings.platforms,browser.settings.platforms);
+  old.settings.platforms.douyin.pausedReason='account_mismatch';old.settings.platforms.douyin.lastStatus='account_mismatch';
+  assert.equal(core.migrateState(old).settings.platforms.douyin.pausedReason,'account_mismatch');
+});
+test('invalid legacy recovery is validated before migration touches the persisted file',async()=>{
+  const root=await mkdtemp(join(tmpdir(),'extension-invalid-')),old=core.emptyState();old.settings.provider='ego';
+  old.settings.platforms.douyin.recovery={provider:'ego',spaceId:0,url:''};
+  const bytes=JSON.stringify(old);await writeFile(join(root,'accounts.json'),bytes);
+  await assert.rejects(loadState(root));assert.equal(await readFile(join(root,'accounts.json'),'utf8'),bytes);
+});
+
+test('retiring the provider preserves successful status and existing scheduled time',()=>{
+  const old=core.emptyState('Asia/Shanghai');old.settings.provider='ego';
+  Object.assign(old.settings.platforms.douyin,{lastStatus:'complete',lastResult:'已保存 12 条作品',lastAttemptAt:'2026-10-10T09:00:00.000Z',nextRunAt:'2026-10-11T09:00:00.000Z'});
+  old.settings.platforms.douyin.schedule.enabled=true;
+  const migrated=core.migrateState(old);assert.deepEqual(migrated.settings.platforms,old.settings.platforms);
 });

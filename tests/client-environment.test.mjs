@@ -58,7 +58,7 @@ function fixture({ paired = false, hidden = false, phase = null, syncFailure = f
       { id: "x", label: "X", metrics: [{ key: "fans", label: "粉丝" }] },
     ],
     settings: {
-      provider: "auto",
+      provider: "browser",
       timeZone: "UTC",
       platforms: {
         douyin: {
@@ -85,7 +85,6 @@ function fixture({ paired = false, hidden = false, phase = null, syncFailure = f
           },
         }
       : {},
-    environment: { status: "missing", message: "尚未检测到连接" },
     browserConnection: {
       available: true,
       paired,
@@ -175,7 +174,6 @@ function fixture({ paired = false, hidden = false, phase = null, syncFailure = f
       if (syncGate && path.endsWith("/sync")) await syncGate;
       if (syncFailure && path.endsWith("/sync")) return { ok: false, json: async () => ({ error: "浏览器连接已离线，请检查后重试。" }) };
       if (path.endsWith("/settings")) {
-        if (body.provider) state.settings.provider = body.provider;
         if (body.platform)
           state.settings.platforms[body.platform] = {
             ...state.settings.platforms[body.platform],
@@ -292,14 +290,13 @@ test("add menu includes unbound metadata platforms and does not create a binding
   assert.deepEqual(Object.keys(app.state.accounts), ["douyin"]);
   assert.equal(app.calls.length, 0);
 });
-test("resume preserves original provider and exact platform URL", async () => {
+test("resume preserves the exact platform URL without selecting a provider", async () => {
   const app = fixture({ paired: true, phase: "needs_login" });
   assert(button(app.render(), "前往登录"));
   await button(app.render(), "继续同步").props.onClick();
   assert.deepEqual(app.calls.find((c) => c.path.endsWith("/sync")).body, {
     platform: "douyin",
     mode: "refresh",
-    provider: "browser",
     url: "https://www.douyin.com/user/lin_film",
     resume: true,
   });
@@ -309,7 +306,8 @@ test("settings separates hidden account from disabled plan and persists daily sc
   button(app.render(), "设置").props.onClick();
   let tree = app.render();
   assert.match(text(tree), /隐藏不影响自动同步/);
-  assert.match(text(tree), /可能打开浏览器任务窗口/);
+  assert.match(text(tree), /宿主与浏览器需保持运行/);
+  assert(!text(tree).includes("浏览器任务窗口"));
   assert.equal(field(tree, "自动同步").props.checked, false);
   assert.equal(field(tree, "时间").props.value, "09:00");
   field(tree, "自动同步").props.onChange({ target: { checked: true } });
@@ -387,6 +385,10 @@ test("developer prompt is project specific and strips query/hash from provided e
   tree = app.render();
   const prompt = field(tree, "开发任务").props.value;
   assert.match(prompt, /src\/platforms.mjs/);
+  assert.match(prompt, /浏览器扩展通路/);
+  assert.match(prompt, /src\/browser-bridge\.mjs/);
+  assert.doesNotMatch(prompt, /browser-runner/);
+  assert.doesNotMatch(prompt, /ego/i);
   assert.match(prompt, /dsh-workbench-personal-social-local/);
   assert(!prompt.includes("token=secret"));
   assert(!prompt.includes("#private"));
@@ -606,7 +608,7 @@ test("opening a login recovery also tracks the final manual outcome", async () =
   const app = fixture({ paired: true, phase: "needs_login" });
   await button(app.render(), "前往登录").props.onClick();
   const request = app.calls.find(c => c.path.endsWith("/login"));
-  assert(request); assert.equal(request.body.provider, "browser");
+  assert(request); assert(!Object.hasOwn(request.body, "provider"));
   app.state.syncByPlatform.douyin = { phase: "complete", jobId: "login-recovered", automatic: false };
   await app.poll();
   assert.match(text(app.render()), /抖音同步成功/);
@@ -626,13 +628,31 @@ test("detail sync immediately announces a queued busy state while POST is still 
     assert(!text(app.render()).includes("同步成功"));
   } finally { release(); await request; }
 });
-test("non-ready connection checks show actionable errors instead of green success notices", async () => {
+test("connection dialog directly offers extension installation and pairing without provider controls", async () => {
   const app = fixture();
   button(app.render(), "浏览器连接").props.onClick();
-  await button(app.render(), "检测连接").props.onClick();
   const dialog = nodes(app.render()).find(n => n.props.role === "dialog");
-  assert(nodes(dialog).some(n => n.props.role === "alert" && text(n).includes("尚未检测到连接")));
-  assert(!nodes(dialog).some(n => n.props.role === "status" && text(n).includes("尚未检测到连接")));
+  assert.match(text(dialog), /Chrome \/ Edge.*生成连接码/);
+  assert(nodes(dialog).some(n => n.type === "a" && n.props.href.endsWith("/browser/download")));
+  assert(!nodes(dialog).some(n => n.props.role === "combobox"));
+  assert(!button(dialog, "检测连接"));
+  assert.doesNotMatch(text(dialog), /Ego|自动选择|采集通路/);
+  await button(dialog, "生成连接码").props.onClick();
+  assert.deepEqual(app.calls.find(c => c.path.endsWith("/browser/pair")).body, {});
+  assert(!app.calls.some(c => c.path.endsWith("/environment")));
+  assert.equal(field(app.render(), "连接码").props.value, "test-connection-code");
+});
+
+test("settings displays extension status without a provider preference", () => {
+  const app = fixture({ paired: true });
+  button(app.render(), "设置").props.onClick();
+  assert.match(text(app.render()), /Chrome · 在线/);
+  assert.doesNotMatch(text(app.render()), /Ego|自动选择|采集通路/);
+  assert(!nodes(app.render()).some(n => n.props["aria-label"] === "采集通路"));
+  button(app.render(), "管理连接").props.onClick();
+  assert(button(app.render(), "生成连接码"));
+  assert(button(app.render(), "撤销授权"));
+  assert.equal(app.calls.length, 0);
 });
 
 
@@ -705,17 +725,17 @@ test("sync errors remain beside their account and disappear after successful ret
   await app.poll();
   assert(!text(app.render()).includes("暂时断网"));
 });
-test("provider Select supports full keyboard navigation, Escape and outside dismissal", async () => {
+test("schedule Select supports full keyboard navigation, Escape and outside dismissal", async () => {
   const app = fixture(); button(app.render(), "设置").props.onClick();
-  const getSelect = () => nodes(app.render()).find(n => n.props.role === "combobox" && n.props["aria-label"] === "采集通路");
+  const getSelect = () => nodes(app.render()).find(n => n.props.role === "combobox" && n.props["aria-label"] === "同步频率");
   assert(!nodes(app.render()).some(n => n.type === "select"));
   const key = async (name) => getSelect().props.onKeyDown({ key: name, preventDefault() {}, stopPropagation() {} });
   await key("ArrowDown"); assert.equal(getSelect().props["aria-expanded"], true);
   await key("End"); await key("Enter");
-  assert.equal(app.state.settings.provider, "ego");
+  assert.match(text(getSelect()), /固定间隔/);
   assert.equal(getSelect().props["aria-expanded"], false);
   await key("ArrowUp"); await key("Home"); await key("Enter");
-  assert.equal(app.state.settings.provider, "auto");
+  assert.match(text(getSelect()), /每天/);
   await key("ArrowDown"); await key("Escape");
   assert.equal(getSelect().props["aria-expanded"], false);
   getSelect().props.onClick(); app.render();
@@ -735,7 +755,7 @@ test("Select opens above near the container edge and keeps a bounded menu", () =
   };
   const control = nodes(root).find(n => n.props.role === "combobox");
   control.props.onClick();
-  const menu = nodes(app.render()).find(n => n.props.role === "listbox" && n.props["aria-label"] === "采集通路");
+  const menu = nodes(app.render()).find(n => n.props.role === "listbox" && n.props["aria-label"] === "同步频率");
   assert.equal(menu.props.style.top, "auto");
   assert.equal(menu.props.style.bottom, "calc(100% + 6px)");
   assert(menu.props.style.maxHeight <= 264);
@@ -803,22 +823,11 @@ test("failed schedule save describes settings, preserves draft, and retries the 
   assert.equal(app.state.settings.platforms.douyin.schedule.enabled, true);
   assert(!text(tree).includes("暂时无法保存"));
 });
-test("Select consumes Escape only while expanded so a collapsed control can dismiss its dialog", () => {
+test("connection dialog dismisses with Escape without any provider picker", () => {
   const app = fixture(); button(app.render(), "浏览器连接").props.onClick();
-  const getControl = () => nodes(app.render()).find(n => n.props.role === "combobox" && n.props["aria-label"] === "采集通路");
-  const escape = () => {
-    let stopped = false;
-    const event = { key: "Escape", preventDefault() {}, stopPropagation() { stopped = true; } };
-    getControl().props.onKeyDown(event);
-    const consumedBySelect = stopped;
-    if (!stopped) nodes(app.render()).find(n => n.props.role === "dialog").props.onKeyDown(event);
-    return consumedBySelect;
-  };
-  getControl().props.onClick();
-  assert.equal(escape(), true);
-  assert(nodes(app.render()).some(n => n.props.role === "dialog"));
-  assert.equal(getControl().props["aria-expanded"], false);
-  assert.equal(escape(), false);
+  const dialog = nodes(app.render()).find(n => n.props.role === "dialog");
+  assert(!nodes(dialog).some(n => n.props.role === "combobox"));
+  dialog.props.onKeyDown({ key: "Escape", preventDefault() {}, stopPropagation() {} });
   assert(!nodes(app.render()).some(n => n.props.role === "dialog"));
 });
 
@@ -892,12 +901,17 @@ test("missing, malformed and inaccessible storage never blocks first-run guide",
     assert(guide(app.render()));
   }
 });
-test("guide recognizes a ready adapter and respects the selected provider", () => {
+test("guide requires extension pairing and the header requires a live extension", () => {
   const app = fixture({ empty: true });
-  app.state.environment.status = "ready";
-  assert.equal(guideStep(app.render(), 0).props["data-complete"], true);
-  app.state.settings.provider = "browser";
+  app.state.environment = { status: "ready" };
+  app.state.settings.provider = "ego";
   assert.equal(guideStep(app.render(), 0).props["data-complete"], false);
+  assert.equal(button(app.render(), "浏览器连接").props.title, "连接浏览器");
+  app.state.browserConnection.paired = true;
+  assert.equal(guideStep(app.render(), 0).props["data-complete"], true);
+  assert.equal(button(app.render(), "浏览器连接").props.title, "连接浏览器");
+  app.state.browserConnection.online = true;
+  assert.equal(button(app.render(), "浏览器连接").props.title, "浏览器已连接 · 管理连接");
 });
 test("work library preserves legacy uncertainty and cumulative counts", () => {
   const app = fixture();
@@ -922,10 +936,9 @@ test("zero works remains unknown unless platform confirms empty", () => {
 test("guide resumes login in the original browser and only marks scheduling from saved settings", async () => {
   const app = fixture({ empty: true, paired: true, phase: "needs_login" });
   app.state.settings.provider = "ego";
-  app.state.environment.status = "ready";
   await button(guide(app.render()), "前往浏览器处理").props.onClick();
   const request = app.calls.find(c => c.path.endsWith("/login"));
-  assert.equal(request.body.provider, "browser");
+  assert(!Object.hasOwn(request.body, "provider"));
   assert.equal(request.body.url, "https://www.douyin.com/user/lin_film");
   assert.equal(guideStep(app.render(), 2).props["data-complete"], false);
   const existing = fixture({ paired: true });
@@ -1175,7 +1188,7 @@ test("help previews only allowlisted diagnostics and copy uses that exact previe
   const app = fixture({ paired: true });
   app.state.browserConnection.token = "secret-token";
   app.state.browserConnection.label = "private-machine";
-  app.state.environment.message = "raw-error-with-user-data";
+  app.state.environment = { message: "raw-error-with-user-data" };
   app.state.settings.provider = "browser";
   button(app.render(), "设置").props.onClick();
   button(app.render(), "查看诊断信息").props.onClick();
@@ -1183,6 +1196,8 @@ test("help previews only allowlisted diagnostics and copy uses that exact previe
   assert(dialog.props["aria-modal"]);
   const preview = field(dialog, "诊断信息"); assert(preview.props.readOnly);
   assert.match(preview.props.value, /版本|运行方式|浏览器扩展|ready/);
+  assert.doesNotMatch(preview.props.value, /Ego|连接选择|provider|采集通路/);
+  assert.equal(preview.props.value.split("\n").length, 3);
   for (const value of ["secret-token", "private-machine", "raw-error-with-user-data", "lin_film", "林间", "https://", "test-connection-code"])
     assert(!preview.props.value.includes(value), value + " must not be copied");
   await button(dialog, "复制诊断信息").props.onClick();

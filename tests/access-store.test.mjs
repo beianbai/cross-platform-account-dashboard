@@ -27,7 +27,7 @@ test('failed durable write neither consumes code nor grants a session',async t=>
  await rm(path,{recursive:true});await rename(path+'.saved',path);assert.ok((await access.redeem(code)).token);
 });
 test('terminal command regenerates code without restart; stopped-service reset is explicit and preserves business data',async t=>{
- const root=await mkdtemp(join(tmpdir(),'psw-access-cli-'));const app=await startStandalone({root,port:0,browserExecutable:'/nonexistent'});t.after(async()=>{await app.close();await rm(root,{recursive:true,force:true});});
+ const root=await mkdtemp(join(tmpdir(),'psw-access-cli-'));const app=await startStandalone({root,port:0});t.after(async()=>{await app.close();await rm(root,{recursive:true,force:true});});
  const code=await issueLocalCode(root);assert.match(code.code,/^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
  const output=await promisify(execFile)(process.execPath,['standalone/auth-cli.mjs','code','--root',root]);assert.match(output.stdout,/配对码/);
  await assert.rejects(resetLocalAccess(root,false));await assert.rejects(resetLocalAccess(root,true),/先停止/);

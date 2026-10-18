@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,rm} from 'node:fs/promises';import {join} from 'node:path';import {tmpdir} from 'node:os';
 import {apply} from '../dsh/index.js';import {emptyState,normalizeSnapshot,applySnapshot} from '../src/core.mjs';import {saveState,loadState} from '../src/store.mjs';
 const raw={url:'https://www.douyin.com/user/self',accountId:'fixture-owner',name:'测试账号',fans:'4',following:'2',works:[],workCount:'0'};
-async function setup(t,seed){const root=await mkdtemp(join(tmpdir(),'social-v03-'));if(seed)await saveState(root,seed);const routes=new Map();let dispose;apply({connection:{fetch:{register(r){routes.set(r.path,r.fetch);}}},effect(fn){dispose=fn();}},{root,browserExecutable:'/missing-browser'});t.after(async()=>{await dispose();await rm(root,{recursive:true,force:true});});const call=async(p,data)=>{const route=routes.get('/api/personal-social/'+p);assert(route,`route ${p} must exist`);const response=await route(new Request('http://localhost/'+p,data?{method:'POST',body:JSON.stringify(data)}:{}));return {status:response.status,data:await response.json()};};await call('state');return {call,root};}
+async function setup(t,seed){const root=await mkdtemp(join(tmpdir(),'social-v03-'));if(seed)await saveState(root,seed);const routes=new Map();let dispose;apply({connection:{fetch:{register(r){routes.set(r.path,r.fetch);}}},effect(fn){dispose=fn();}},{root});t.after(async()=>{await dispose();await rm(root,{recursive:true,force:true});});const call=async(p,data)=>{const route=routes.get('/api/personal-social/'+p);assert(route,`route ${p} must exist`);const response=await route(new Request('http://localhost/'+p,data?{method:'POST',body:JSON.stringify(data)}:{}));return {status:response.status,data:await response.json()};};await call('state');return {call,root};}
 async function pair(app){const code=new URL((await app.call('browser/pair',{})).data.code),base='http://127.0.0.1:'+code.port;const send=async(p,token,data)=>{const r=await fetch(base+p,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(data)});return r.json();};const token=(await send('/pair',code.hash.slice(1),{label:'测试连接'})).token;return (p,data={})=>send(p,token,data);}
 async function jobFrom(browser){for(let i=0;i<100;i++){const r=await browser('/poll');if(r.job)return r.job;await new Promise(r=>setTimeout(r,5));}throw Error('job not delivered');}
 async function wait(app,predicate){for(let i=0;i<100;i++){const s=(await app.call('state')).data;if(predicate(s))return s;await new Promise(r=>setTimeout(r,10));}throw Error('state did not settle');}
@@ -13,9 +13,14 @@ test('disabling a queued plan clears its running state',async t=>{
  await app.call('sync',{platform:'douyin'});const first=await jobFrom(browser);await app.call('sync',{platform:'x'});assert.equal((await app.call('state')).data.syncByPlatform.x.running,true);
  await app.call('settings',{platform:'x',schedule:{enabled:false}});await browser('/result',{id:first.id,status:'needs_login'});const s=await wait(app,s=>!s.sync.running);assert.equal(s.syncByPlatform.x.running,false);assert.equal(s.syncByPlatform.x.phase,'idle');
 });
-test('paused login restores original browser and page recovery metadata after restart',async t=>{
- const seed=applySnapshot(emptyState(),'douyin',normalizeSnapshot('douyin',raw));seed.settings.platforms.douyin.pausedReason='needs_login';seed.settings.platforms.douyin.recovery={provider:'ego',spaceId:42,url:raw.url};
- const app=await setup(t,seed),s=(await app.call('state')).data;assert.equal(s.syncByPlatform.douyin.provider,'ego');assert.equal(s.syncByPlatform.douyin.url,raw.url);
+test('legacy paused login resumes through extension after restart without old recovery space',async t=>{
+ const seed=applySnapshot(emptyState(),'douyin',normalizeSnapshot('douyin',raw));seed.settings.provider='ego';seed.settings.platforms.douyin.pausedReason='needs_login';seed.settings.platforms.douyin.recovery={provider:'ego',spaceId:42,url:raw.url};
+ const app=await setup(t,seed),s=(await app.call('state')).data;
+ assert.equal(s.settings.provider,'browser');assert.equal(s.settings.platforms.douyin.recovery,null);assert.equal(s.settings.platforms.douyin.pausedReason,null);
+ const browser=await pair(app);assert.equal((await app.call('login',{platform:'douyin'})).status,202);
+ const job=await jobFrom(browser);assert.equal(job.resume,true);assert.equal(job.url,raw.url);
+ await browser('/result',{id:job.id,status:'ok',raw:{...raw,fans:'8'}});
+ const complete=await wait(app,s=>!s.sync.running);assert.equal(complete.accounts.douyin.fans.value,8);assert.equal(complete.syncByPlatform.douyin.provider,'browser');
 });
 test('overdue schedules run once in background and successful completion advances the plan',async t=>{
  const seed=applySnapshot(emptyState(),'douyin',normalizeSnapshot('douyin',raw));const c=seed.settings.platforms.douyin;c.schedule.enabled=true;c.nextRunAt='2026-01-01T00:00:00.000Z';

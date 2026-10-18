@@ -40,7 +40,7 @@ function readBody(req) {
 }
 
 /** The shared business service receives only registered, authenticated Requests. */
-export async function startStandalone({ port = 43120, root = defaultDataRoot(), browserExecutable } = {}) {
+export async function startStandalone({ port = 43120, root = defaultDataRoot() } = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw Error('端口须为 0–65535 的整数。');
   await mkdir(resolve(root), { recursive: true, mode: 0o700 });
   root = await realpath(resolve(root));
@@ -69,7 +69,7 @@ export async function startStandalone({ port = 43120, root = defaultDataRoot(), 
     const cookieToken = req => (req.headers.cookie || '').split(';').map(s=>s.trim().split('=')).find(([key])=>key===cookieName)?.[1];
     const cookie = token => `${cookieName}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(IDLE_MS/1000)}`;
     const csrfFor = session => createHmac('sha256',csrf).update(session.id).digest('hex');
-    apply({ connection: { fetch: { register(route) { for (const method of route.methods) routes.set(method + ' ' + route.path, route.fetch); } } }, effect(fn) { const dispose = fn(); if (typeof dispose === 'function') cleanup.push(dispose); } }, { root, browserExecutable });
+    apply({ connection: { fetch: { register(route) { for (const method of route.methods) routes.set(method + ' ' + route.path, route.fetch); } } }, effect(fn) { const dispose = fn(); if (typeof dispose === 'function') cleanup.push(dispose); } }, { root });
     // Deliberately explicit allowlist: data and source paths can never become static files.
     const staticFiles = new Map([
       ['/', [new URL('./index.html', import.meta.url), 'text/html; charset=utf-8']],
@@ -142,9 +142,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     const args = process.argv.slice(2), options = {};
     for (let n = 0; n < args.length; n++) {
       const key = args[n];
-      if (key === '--help') { console.log('使用：npm start -- [--port 43120] [--root 独立数据目录] [--browser-executable 路径]'); process.exit(0); }
-      if (!['--port', '--root', '--browser-executable'].includes(key) || !args[n + 1] || args[n + 1].startsWith('--')) throw Error('启动参数无效；使用 --help 查看说明。');
-      options[key === '--port' ? 'port' : key === '--root' ? 'root' : 'browserExecutable'] = key === '--port' ? Number(args[++n]) : args[++n];
+      if (key === '--help') { console.log('使用：npm start -- [--port 43120] [--root 独立数据目录]'); process.exit(0); }
+      if (!['--port', '--root'].includes(key) || !args[n + 1] || args[n + 1].startsWith('--')) throw Error('启动参数无效；使用 --help 查看说明。');
+      options[key === '--port' ? 'port' : 'root'] = key === '--port' ? Number(args[++n]) : args[++n];
     }
     if (!await exists(new URL('../lib/standalone.js', import.meta.url))) throw Error('请先运行 npm run build 构建独立界面。');
     const app = await startStandalone(options);

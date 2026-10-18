@@ -1,3 +1,4 @@
+import {nextOccurrence} from './scheduler.mjs';
 import {PLATFORMS, PLATFORM_BY_ID, X_RESERVED_HANDLES} from './platforms.mjs';
 export {PLATFORMS,LABELS} from './platforms.mjs';
 export function profileURL(platform, input='') {
@@ -98,7 +99,7 @@ function checkedTimeZone(value) {if(typeof value!=='string'||!value)throw Error(
 function defaultPlatformSettings(timeZone) {return {visible:true,schedule:{enabled:false,kind:'daily',time:'09:00',hours:6,timeZone},nextRunAt:null,pausedReason:null,lastAttemptAt:null,lastResult:null};}
 export function emptyState(timeZone=systemTimeZone()) {
   checkedTimeZone(timeZone);
-  return {version:2,accounts:{},archives:[],settings:{provider:'auto',timeZone,platforms:Object.fromEntries(PLATFORMS.map(id=>[id,defaultPlatformSettings(timeZone)]))}};
+  return {version:2,accounts:{},archives:[],settings:{provider:'browser',timeZone,platforms:Object.fromEntries(PLATFORMS.map(id=>[id,defaultPlatformSettings(timeZone)]))}};
 }
 export function platformSettings(state,platform) {
   if(!PLATFORMS.includes(platform))throw Error('不支持的平台');
@@ -169,7 +170,23 @@ export function validateState(value) {
 }
 export function migrateState(value,timeZone=systemTimeZone()) {
   validateState(value);
-  if(value.version===2)return structuredClone(value);
+  if(value.version===2){
+    const state=structuredClone(value);
+    state.settings.provider='browser';
+    for(const platform of PLATFORMS){
+      const settings=state.settings.platforms[platform];
+      const usedEgo=value.settings.provider==='ego'||settings.recovery?.provider==='ego';
+      // Recovery spaces belonged to the retired runtime. Validate them above,
+      // then drop the route without touching account identity or saved works.
+      if(settings.recovery)settings.recovery=null;
+      const blocked=settings.pausedReason||['queued','reading','needs_login','login_required','needs_attention','parse_error','connection_offline','network_error'].includes(settings.lastStatus);
+      if(usedEgo&&blocked&&!['user_paused','account_mismatch'].includes(settings.pausedReason)&&settings.lastStatus!=='account_mismatch'){
+        settings.pausedReason=null;settings.lastStatus=null;settings.lastResult=null;settings.retryCount=0;
+        if(settings.schedule.enabled&&!settings.nextRunAt)settings.nextRunAt=nextOccurrence(settings.schedule);
+      }
+    }
+    validateState(state);return state;
+  }
   const state={...structuredClone(value),...emptyState(timeZone),accounts:structuredClone(value.accounts)};
   for(const [platform,account] of Object.entries(state.accounts)) {
     account.platform=platform;

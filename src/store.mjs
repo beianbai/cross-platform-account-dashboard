@@ -20,8 +20,8 @@ export async function loadState(root,timeZone) {
       }
     }
     finally {await backup?.close();}
-    await saveState(root,migrated);
   }
+  if(JSON.stringify(value)!==JSON.stringify(migrated))await saveState(root,migrated);
   return migrated;
 }
 export async function saveState(root,state) {

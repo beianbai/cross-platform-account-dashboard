@@ -15,7 +15,7 @@ export async function privateJSON(path,value){
 }
 export function browserLabel(ua=''){
   if(/Edg\//.test(ua))return 'Microsoft Edge';if(/Firefox\//.test(ua))return 'Firefox';
-  if(/ego/i.test(ua))return 'Ego Lite';if(/Chrome\//.test(ua))return 'Chrome / Chromium';
+  if(/Chrome\//.test(ua))return 'Chrome / Chromium';
   if(/Safari\//.test(ua))return 'Safari';return '浏览器';
 }
 export async function createAccess(root,{now=Date.now}={}){

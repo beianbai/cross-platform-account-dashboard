@@ -29,7 +29,7 @@ test('DSH release archive loads its client and serves connectors without the sta
   const routes = new Map();
   const data = join(temporary, 'data');
   await mkdir(data);
-  apply({ connection: { fetch: { register(route) { routes.set(route.path, route.fetch); } } }, effect(fn) { cleanups.push(fn()); } }, { root: data, browserExecutable: '/nonexistent-test-browser' });
+  apply({ connection: { fetch: { register(route) { routes.set(route.path, route.fetch); } } }, effect(fn) { cleanups.push(fn()); } }, { root: data });
   const download = await routes.get('/api/personal-social/browser/download')(new Request('http://localhost/api/personal-social/browser/download'));
   assert.equal(download.status, 200);
   assert.equal(download.headers.get('content-type'), 'application/zip');

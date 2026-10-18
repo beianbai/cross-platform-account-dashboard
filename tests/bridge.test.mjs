@@ -56,13 +56,7 @@ test('batch acknowledgements follow persistence, are idempotent and reject gaps 
  assert.equal((await call(port,token,'/batch',{...batch,sequence:1})).status,409);
 });
 
-test('Ego batch credential is per-task, not an extension session, and expires when closed',async t=>{
- const {bridge}=await setup(t);let saved=0;
- const session=bridge.createLocalSession(async()=>{saved++;return {known:true};});
- const send=(path,body,headers={})=>fetch(session.base+path,{method:'POST',headers:{Authorization:'Bearer '+session.token,'Content-Type':'application/json',...headers},body:JSON.stringify(body)});
- const batch={id:session.id,sequence:0,raw:{works:[]}};
- assert.equal((await send('/batch',batch,{Origin:origin})).status,401);
- assert.equal((await send('/poll',{})).status,401);
- assert.equal((await send('/batch',batch)).status,200);assert.equal(saved,1);
- session.close();assert.equal((await send('/batch',{...batch,sequence:1})).status,401);
+test('unpaired batch requests cannot bypass extension authorization',async t=>{
+ const {bridge}=await setup(t),port=bridge.status().port;
+ assert.equal((await call(port,'0'.repeat(64),'/batch',{id:'obsolete-local-session',sequence:0,raw:{works:[]}},{Origin:''})).status,401);
 });

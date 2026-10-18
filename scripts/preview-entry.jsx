@@ -122,14 +122,9 @@ let state = {
   accounts: {},
   archives: [],
   platforms,
-  settings: { provider: "auto", timeZone: "Asia/Shanghai", platforms: {} },
+  settings: { provider: "browser", timeZone: "Asia/Shanghai", platforms: {} },
   sync: { running: false, error: "", platform: null },
   syncByPlatform: {},
-  environment: {
-    status: params.get("environment") || "missing",
-    message: "尚未检测到可用连接。",
-    checking: false,
-  },
   browserConnection: {
     available: true,
     paired: params.has("connected"),
@@ -181,10 +176,6 @@ if (params.has("login"))
 window.fetch = async (url, opts) => {
   const path = String(url),
     body = opts?.body ? JSON.parse(opts.body) : {};
-  if (path.endsWith("/environment")) {
-    state.environment = { status: "ready", message: "Ego Lite 连接检测通过。" };
-    return Response.json({ environment: state.environment });
-  }
   if (path.endsWith("/browser/pair"))
     return Response.json({
       code: "dsh-social://127.0.0.1:12345#" + "a".repeat(64),
@@ -203,7 +194,7 @@ window.fetch = async (url, opts) => {
   }
   if (path.endsWith("/sync") || path.endsWith("/login")) {
     const jobId = "preview-" + Date.now();
-    state.syncByPlatform[body.platform] = { jobId, automatic: false, completedAt: null, running: true, phase: "queued", provider: body.provider, platform: body.platform, error: "", lastResult: "等待同步" };
+    state.syncByPlatform[body.platform] = { jobId, automatic: false, completedAt: null, running: true, phase: "queued", provider: "browser", platform: body.platform, error: "", lastResult: "等待同步" };
     setTimeout(() => { state.syncByPlatform[body.platform] = { ...state.syncByPlatform[body.platform], phase: "reading", progress: { saved: 24, added: 7, batches: 1, mode: body.mode || "history" }, lastResult: "正在读取" }; }, 600);
     setTimeout(() => {
       if (state.syncByPlatform[body.platform]?.phase === "paused") return;
@@ -217,7 +208,6 @@ window.fetch = async (url, opts) => {
     return Response.json({ started: true });
   }
   if (path.endsWith("/settings")) {
-    if (body.provider) state.settings.provider = body.provider;
     if (body.platform) {
       const p = state.settings.platforms[body.platform] || {
         visible: true,

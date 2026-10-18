@@ -9,16 +9,16 @@ import {emptyState,normalizeSnapshot,applySnapshot} from '../src/core.mjs';
 async function harness(seed,existingRoot){
  const routes=new Map();const root=existingRoot||await mkdtemp(join(tmpdir(),'social-server-test-'));let dispose;
  if(seed)await saveState(root,seed);
- apply({connection:{fetch:{register(v){routes.set(v.path,v.fetch);}}},effect(fn){dispose=fn();}},{root,browserExecutable:'/intentionally-missing-ego-browser'});
- return {root,call:(name,body)=>routes.get('/api/personal-social/'+name)(new Request('http://localhost/api/personal-social/'+name,body?{method:'POST',body:JSON.stringify(body),headers:{'Content-Type':'application/json'}}:{})),dispose:()=>dispose()};
+ apply({connection:{fetch:{register(v){routes.set(v.path,v.fetch);}}},effect(fn){dispose=fn();}},{root});
+ return {root,routes,call:(name,body)=>routes.get('/api/personal-social/'+name)(new Request('http://localhost/api/personal-social/'+name,body?{method:'POST',body:JSON.stringify(body),headers:{'Content-Type':'application/json'}}:{})),dispose:()=>dispose()};
 }
 async function settled(app){for(let i=0;i<100;i++){const state=await(await app.call('state')).json();if(!state.sync.running)return state;await new Promise(r=>setTimeout(r,5));}throw Error('Server did not settle');}
 async function jobFrom(browser){for(let i=0;i<100;i++){const r=await(await browser('/poll')).json();if(r.job)return r.job;await new Promise(r=>setTimeout(r,5));}throw Error('job not delivered');}
 async function pairBrowser(app){const code=new URL((await(await app.call('browser/pair',{})).json()).code);const base=`http://127.0.0.1:${code.port}`;const send=(path,token,body={})=>fetch(base+path,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body)});const token=(await(await send('/pair',code.hash.slice(1),{label:'测试浏览器'})).json()).token;return (path,body)=>send(path,token,body);}
-test('no Ego installation is needed for extension login, continue and account synchronization',async t=>{
+test('extension login, continue and account synchronization use the paired browser',async t=>{
  const app=await harness();t.after(()=>app.dispose());assert.equal((await app.call('sync',{platform:'douyin'})).status,400);const browser=await pairBrowser(app);
  assert.equal((await app.call('sync',{platform:'douyin'})).status,202);const job=await jobFrom(browser);
- await browser('/result',{id:job.id,status:'needs_login'});let state=await settled(app);assert.equal(state.environment.status,'missing');assert.equal(state.sync.phase,'needs_login');assert.deepEqual(state.accounts,{});
+ await browser('/result',{id:job.id,status:'needs_login'});let state=await settled(app);assert.equal(state.environment,undefined);assert.equal(state.sync.phase,'needs_login');assert.deepEqual(state.accounts,{});
  assert.equal((await app.call('sync',{platform:'douyin'})).status,202);const retry=await jobFrom(browser);
  const raw={url:'https://www.douyin.com/user/self',accountId:'fixture-account',name:'浏览器账号',fans:'0',following:'12',workCount:'0',works:[],worksStatus:'empty',scope:'fixture only'};
  await browser('/result',{id:retry.id,status:'ok',raw});state=await settled(app);assert.equal(state.sync.phase,'complete');assert.equal(state.accounts.douyin.name,'浏览器账号');assert.equal(state.accounts.douyin.fans.value,0);
@@ -35,12 +35,20 @@ test('empty state is usable without a session and rejects unsafe inputs',async()
  assert.equal((await app.call('unbind',{platform:'douyin'})).status,400);
  assert.equal((await app.call('state')).status,200);app.dispose();
 });
-test('environment endpoint remains available without a browser and leaves account data intact',async()=>{
+test('backend exposes extension connection only and rejects obsolete provider selection',async t=>{
  const seed=applySnapshot(emptyState(),'douyin',normalizeSnapshot('douyin',{url:'https://www.douyin.com/user/self',name:'cached fixture',accountId:'fixture',fans:'1',following:'2',works:[]}));
- const app=await harness(seed);const initial=await(await app.call('state')).json();assert.equal(initial.environment.status,'missing');assert.deepEqual(initial.accounts,seed.accounts);
- const results=await Promise.all([app.call('environment',{}),app.call('environment',{})]);assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);
- const after=await(await app.call('state')).json();assert.deepEqual(after.accounts,initial.accounts);assert.equal(after.environment.checking,false);assert.equal(after.sync.running,false);app.dispose();
- assert.equal((await app.call('environment',{})).status,503);
+ const app=await harness(seed);t.after(()=>app.dispose());const initial=await(await app.call('state')).json();
+ assert.equal(initial.environment,undefined);assert.equal(app.routes.has('/api/personal-social/environment'),false);assert.deepEqual(initial.accounts,seed.accounts);
+ const browser=await pairBrowser(app);
+ for(const provider of ['auto','ego','invented']){
+  assert.equal((await app.call('settings',{provider})).status,400);
+  assert.equal((await app.call('sync',{platform:'douyin',provider})).status,400);
+ }
+ assert.equal((await(await browser('/poll')).json()).job,null);
+ assert.equal((await(await app.call('state')).json()).settings.provider,'browser');
+ await app.call('sync',{platform:'douyin'});const job=await jobFrom(browser);
+ assert.equal((await app.call('sync',{platform:'douyin',provider:'ego'})).status,400);
+ await browser('/result',{id:job.id,status:'needs_login'});await settled(app);
 });
 test('simultaneous requests for the same account deliver only one browser task',async t=>{
  const app=await harness();t.after(()=>app.dispose());const browser=await pairBrowser(app);

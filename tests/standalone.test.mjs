@@ -4,11 +4,18 @@ import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { request } from 'node:http';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { startStandalone, defaultDataRoot } from '../standalone/server.mjs';
 const api = '/api/personal-social/';
+test('standalone rejects the removed browser executable option before starting a service', () => {
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL('../standalone/server.mjs', import.meta.url)), '--browser-executable', '/missing-command', '--help'], { encoding: 'utf8' });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /启动参数无效/);
+});
 async function setup(t) {
   const root = await mkdtemp(join(tmpdir(), 'social-standalone-'));
-  const app = await startStandalone({ root, port: 0, browserExecutable: '/nonexistent-test-browser' });
+  const app = await startStandalone({ root, port: 0 });
   t.after(async () => { await app.close(); await rm(root, { recursive: true, force: true }); });
   return app;
 }
@@ -75,7 +82,7 @@ test('same business service pairs, syncs and persists state and login across gra
   assert.equal((await stat(join(app.root, 'standalone-session.json'))).mode & 0o777, 0o600);
   assert.equal(JSON.parse(await readFile(join(app.root, 'accounts.json'))).accounts.douyin.fans.value, 42);
   await app.close();
-  const restarted = await startStandalone({ root: app.root, port: 0, browserExecutable: '/nonexistent-test-browser' }); t.after(() => restarted.close());
+  const restarted = await startStandalone({ root: app.root, port: 0 }); t.after(() => restarted.close());
   const session = await fetch(restarted.url + '/session', { headers: { Cookie: auth.cookie } }); assert.equal(session.status, 200);
   auth.csrf = (await session.json()).csrf;
   state = await (await call(restarted, auth, 'state')).json(); assert.equal(state.settings.provider, 'browser'); assert.equal(state.accounts.douyin.fans.value, 42); assert.equal(state.browserConnection.paired, true);
@@ -86,7 +93,7 @@ test('single data root cannot be opened concurrently and graceful close releases
   const app = await setup(t);
   await assert.rejects(startStandalone({ root: app.root, port: 0 }), /already|占用|运行|lock/i);
   await app.close();
-  const next = await startStandalone({ root: app.root, port: 0, browserExecutable: '/nonexistent-test-browser' }); await next.close();
+  const next = await startStandalone({ root: app.root, port: 0 }); await next.close();
 });
 
 test('standalone refuses existing DSH data and cleans up after a port bind failure', async t => {
@@ -97,9 +104,9 @@ test('standalone refuses existing DSH data and cleans up after a port bind failu
   assert.equal(await readFile(join(other, 'accounts.json'), 'utf8'), '{"existing":"untouched"}');
   await assert.rejects(stat(join(other, '.standalone.lock')), { code: 'ENOENT' });
   await rm(join(other, 'accounts.json'));
-  await assert.rejects(startStandalone({ root: other, port: Number(new URL(app.url).port), browserExecutable: '/nonexistent-test-browser' }), { code: 'EADDRINUSE' });
+  await assert.rejects(startStandalone({ root: other, port: Number(new URL(app.url).port) }), { code: 'EADDRINUSE' });
   await assert.rejects(stat(join(other, '.standalone.lock')), { code: 'ENOENT' });
-  const recovered = await startStandalone({ root: other, port: 0, browserExecutable: '/nonexistent-test-browser' }); await recovered.close();
+  const recovered = await startStandalone({ root: other, port: 0 }); await recovered.close();
 });
 test('chunked body limit cannot be bypassed without Content-Length', async t => {
   const app = await setup(t), auth = await login(app);
