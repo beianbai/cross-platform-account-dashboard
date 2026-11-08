@@ -20,7 +20,7 @@ export function isPlatformPageURL(platform,value) {
     const definition=PLATFORM_BY_ID[platform];if(!definition?.hosts.includes(u.hostname))return false;
     if(platform==='xiaohongshu')return /^\/explore\/?$/.test(path)||definition.profilePattern.test(path);
     if(platform==='douyin')return /^\/user\/[A-Za-z0-9_-]+\/?$/.test(path);
-    if(platform==='x')return ['/home','/i/flow/login','/account/access'].includes(path.replace(/\/$/,''))||(definition.profilePattern.test(path)&&!X_RESERVED_HANDLES.has(path.replace(/^\/|\/$/g,'').toLowerCase()));
+    if(platform==='x')return ['/home','/login','/i/flow/login','/account/access'].includes(path.replace(/\/$/,''))||(definition.profilePattern.test(path)&&!X_RESERVED_HANDLES.has(path.replace(/^\/|\/$/g,'').toLowerCase()));
     return false;
   }catch{return false;}
 }

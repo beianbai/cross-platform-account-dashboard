@@ -1,11 +1,13 @@
 // All page functions are self-contained and inspect only visible official-page DOM.
-export function readWorkWindow({platform,category}) {
+export function readWorkWindow({platform,category,gateChecked=false}) {
   const visible=e=>!!e&&e.getBoundingClientRect().width>0&&e.getBoundingClientRect().height>0;
   const text=e=>e?.innerText?.trim()||'';
   const any=s=>[...document.querySelectorAll(s)].some(visible);
-  if(any('[class*="captcha"],[id*="captcha"],iframe[src*="captcha"]'))return {gate:'needs_attention'};
-  if(any('.login-container,.login-panel,.bili-mini-login,[data-e2e="login-panel"],[data-testid="loginButton"]')||/\/i\/flow\/login/.test(location.pathname))return {gate:'needs_login'};
-  if(any('[data-testid="error-detail"]'))return {gate:'network_error'};
+  if(!gateChecked){
+    if(any('[class*="captcha"],[id*="captcha"],iframe[src*="captcha"]'))return {gate:'needs_attention'};
+    if(any('.login-container,.login-panel,.bili-mini-login,[data-e2e="login-panel"],[data-testid="loginButton"]')||/\/i\/flow\/login/.test(location.pathname))return {gate:'needs_login'};
+    if(any('[data-testid="error-detail"]'))return {gate:'network_error'};
+  }
   const roots={x:'[data-testid="primaryColumn"]',xiaohongshu:'.feeds-container',douyin:'[data-e2e="user-post-list"]',bilibili:'.upload-content .'+category};
   const root=document.querySelector(roots[platform])||(platform==='xiaohongshu'?document.querySelector('.note-item')?.parentElement:null);
   if(!root)return {works:[],identity:null,loading:true};
@@ -56,7 +58,7 @@ export function advanceWorkWindow({platform}) {
   let container=root;while(container&&container!==document.body){const style=getComputedStyle(container);if(/auto|scroll/.test(style.overflowY)&&container.scrollHeight>container.clientHeight+10){const before=container.scrollTop;container.scrollBy(0,Math.max(400,container.clientHeight*.8));return {moved:container.scrollTop!==before,bottom:container.scrollTop+container.clientHeight>=container.scrollHeight-4};}container=container.parentElement;}
   const before=window.scrollY;window.scrollBy(0,Math.max(400,window.innerHeight*.8));return {moved:window.scrollY!==before,bottom:window.scrollY+window.innerHeight>=document.documentElement.scrollHeight-4};
 }
-export async function traverseWorks({page,platform,collection,onBatch},metadata){
+export async function traverseWorks({page,platform,collection,onBatch,readGate},metadata){
   if(typeof onBatch!=='function')throw Error('Collection requires onBatch');
   const mode=collection.mode==='refresh'?'refresh':collection.mode==='incremental'?'incremental':'history';
   const deadline=Date.now()+Math.min(90000,Math.max(1,collection.budgetMs??90000));
@@ -73,7 +75,8 @@ export async function traverseWorks({page,platform,collection,onBatch},metadata)
   const signature=state=>(state.works||[]).filter(w=>!w.pinned).map(w=>w.url).join('|');
   let categorySeen=new Set();
   const read=async()=>{
-    const state=await page.evaluate(readWorkWindow,{platform,category});
+    if(readGate){const gate=await readGate();if(gate&&gate!=='parse_error')return {gate};}
+    const state=await page.evaluate(readWorkWindow,{platform,category,gateChecked:!!readGate});
     if(['bilibili','douyin'].includes(platform)&&!invalid(state)){
       const pattern=platform==='douyin'?/^https:\/\/www\.douyin\.com\/video\/\d+\/?$/:{video:/^https:\/\/www\.bilibili\.com\/video\/BV[A-Za-z0-9]+\/?$/,opus:/^https:\/\/www\.bilibili\.com\/(?:opus\/\d+|read\/cv\d+)\/?$/,audio:/^https:\/\/www\.bilibili\.com\/audio\/au\d+\/?$/}[category];
       for(const work of state.works||[])if(pattern?.test(work.url)&&(platform==='douyin'||!work.kind||work.kind==={video:'视频',opus:'图文',audio:'音频'}[category]))categorySeen.add(work.url.replace(/\/$/,''));
@@ -108,7 +111,12 @@ export async function traverseWorks({page,platform,collection,onBatch},metadata)
     category=categories[ci];categorySeen=new Set();window=0;pageNumber=1;last='';knownWindows=0;
     if(Date.now()>=deadline)return finish('paused','budget');
     if(platform==='bilibili'&&metadata.coverage?.[category]?.total==='0')continue;
-    if(platform==='bilibili')await page.goto(metadata.url+'/upload/'+category);
+    if(platform==='bilibili'){
+      try{await page.goto(metadata.url+'/upload/'+category);}catch(error){
+        if(['needs_login','needs_attention','account_mismatch','network_error'].includes(error?.status))return finish('paused',error.status);
+        throw error;
+      }
+    }
     let state=await read();let gate=invalid(state);if(gate)return finish('paused',gate);
     const hydrationDeadline=Math.min(deadline,Date.now()+10000);
     while(state.loading&&Date.now()<hydrationDeadline){

@@ -318,6 +318,42 @@ test("resume preserves the exact platform URL without selecting a provider", asy
     resume: true,
   });
 });
+
+test("dismissing a platform warning hides the same occurrence across views without clearing login state, and a new job warns again", () => {
+  const app = fixture({ paired: true, phase: "needs_login" });
+  app.state.syncByPlatform.douyin.jobId = "attempt-1";
+  let tree = app.render();
+  const dismiss = button(tree, "关闭抖音提示");
+  assert(dismiss, "platform warning must offer a close control");
+  dismiss.props.onClick();
+  tree = app.render();
+  assert(!button(tree, "关闭抖音提示"));
+  assert.match(text(tree), /需要登录/);
+  assert.equal(app.state.syncByPlatform.douyin.phase, "needs_login");
+  button(tree, "浏览器连接").props.onClick();
+  assert(!button(app.render(), "关闭抖音提示"));
+  button(app.render(), "关闭").props.onClick();
+  app.state.syncByPlatform.douyin.jobId = "attempt-2";
+  assert(button(app.render(), "关闭抖音提示"));
+  assert.equal(app.calls.length, 0, "dismissal must not update server state or trigger collection");
+});
+
+test("connection status precedes independent dismissible platform warnings in the keyboard scroll region", () => {
+  const app = fixture({ paired: true, phase: "needs_login" });
+  app.state.syncByPlatform.x = { phase: "parse_error", error: "页面数据未识别", jobId: "x-1" };
+  button(app.render(), "浏览器连接").props.onClick();
+  let dialog = nodes(app.render()).find(n => n.props.role === "dialog");
+  assert(text(dialog).indexOf("Chrome已连接") < text(dialog).indexOf("需要重新登录"));
+  const region = nodes(dialog).find(n => n.props.className === "psw-dialogbody");
+  assert.equal(region.props.tabIndex, 0);
+  assert.equal(region.props["aria-label"], "浏览器连接内容");
+  assert(button(dialog, "关闭抖音提示"));
+  button(dialog, "关闭X提示").props.onClick();
+  dialog = nodes(app.render()).find(n => n.props.role === "dialog");
+  assert(!button(dialog, "关闭X提示"));
+  assert(button(dialog, "关闭抖音提示"));
+  assert.match(text(dialog), /Chrome已连接/);
+});
 test("settings separates hidden account from disabled plan and persists daily schedule", async () => {
   const app = fixture();
   button(app.render(), "设置").props.onClick();

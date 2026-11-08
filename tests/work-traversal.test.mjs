@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
+import {readPageGate} from '../src/collector.mjs';
 import {traverseWorks,readWorkWindow} from '../src/work-traversal.mjs';
 const works=n=>Array.from({length:n},(_,i)=>({url:'https://x.com/me/status/'+i,title:String(i)}));
 function fixture(windows){let at=0;return {evaluate:async fn=>fn.name==='advanceWorkWindow'?(at++,true):windows[Math.min(at,windows.length-1)]};}
@@ -77,4 +79,28 @@ test('daily refresh reads each Bili category once without paging',async()=>{
  const page={goto:async url=>{category=url.split('/').at(-1);visits.push(category);},evaluate:async fn=>fn.name==='advanceWorkWindow'?(advances++,false):{identity:'https://space.bilibili.com/12',works:[{url:'https://www.bilibili.com/'+category+'/123'}],end:false}};
  const result=await traverseWorks({page,platform:'bilibili',collection:{mode:'refresh'},onBatch:async()=>({known:false})},{url:'https://space.bilibili.com/12'});
  assert.deepEqual(visits,['video','opus','audio']);assert.equal(advances,0);assert.equal(result.collectionProgress.status,'incremental');
+});
+
+
+test('shared gate callback pauses history after a new login modal and retains saved checkpoint progress',async()=>{
+ let gated=false,workReads=0;const batches=[];
+ const dialog={innerText:'扫码登录\n验证码登录\n密码登录',getBoundingClientRect:()=>({width:300,height:200})};
+ const readGate=async()=>vm.runInNewContext('('+readPageGate.toString()+')()',{document:{body:{innerText:''},querySelectorAll:s=>gated&&s.includes('[role="dialog"]')?[dialog]:[]},location:new URL('https://x.com/me')});
+ const page={evaluate:async fn=>{if(fn.name==='advanceWorkWindow'){gated=true;return true;}workReads++;return {identity:'https://x.com/me',works:[{url:'https://x.com/me/status/'+workReads}],end:workReads>1};}};
+ await assert.rejects(traverseWorks({page,readGate,platform:'x',collection:{mode:'history'},onBatch:async raw=>{batches.push(raw);return {known:false};}},{url:'https://x.com/me'}),e=>e.status==='needs_login');
+ assert.equal(workReads,1);assert.deepEqual(batches.flatMap(b=>b.works).map(w=>w.url),['https://x.com/me/status/1']);
+ const progress=batches.at(-1).collectionProgress;
+ assert.equal(progress.status,'paused');assert.equal(progress.reason,'needs_login');assert.equal(progress.scanned,1);assert.equal(progress.checkpoint.scanned,1);assert.equal(progress.checkpoint.accountURL,'https://x.com/me');
+});
+
+
+test('Bili navigation gate emits a paused checkpoint after the previous category was saved',async()=>{
+ for(const status of ['needs_login','needs_attention','network_error']){
+  const batches=[];let category='';
+  const page={goto:async url=>{category=url.split('/').at(-1);if(category==='opus')throw Object.assign(Error(status),{status});},evaluate:async()=>({identity:'https://space.bilibili.com/12',works:[{url:'https://www.bilibili.com/video/BVabc1',kind:'视频'}],end:true})};
+  await assert.rejects(traverseWorks({page,platform:'bilibili',collection:{mode:'history'},onBatch:async raw=>{batches.push(raw);return {known:false};}},{url:'https://space.bilibili.com/12'}),e=>e.status===status);
+  assert.deepEqual(batches.flatMap(b=>b.works).map(w=>w.url),['https://www.bilibili.com/video/BVabc1']);
+  const progress=batches.at(-1).collectionProgress;
+  assert.equal(progress.status,'paused');assert.equal(progress.reason,status);assert.equal(progress.scanned,1);assert.equal(progress.checkpoint.category,'opus');assert.equal(progress.checkpoint.scanned,1);
+ }
 });

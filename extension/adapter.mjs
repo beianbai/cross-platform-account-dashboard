@@ -28,7 +28,14 @@ export function createPageAdapter(api,tabId,platform,{automatic=false,sleep=ms=>
       const until=now()+12000;
       while(now()<until){
         const tab=await api.tabs.get(tabId);
-        if(atDestination(tab.url)){
+        const allowed=isPlatformURL(platform,tab.url),current=allowed?new URL(tab.url):null;
+        const redirect=platform==='x'&&current&&['/login','/i/flow/login','/account/access'].includes(path(current));
+        if(atDestination(tab.url)||redirect){
+          let gate;
+          // Navigation may briefly have no scriptable document; keep waiting in that case.
+          try{gate=await evaluate(readPageGate);}catch(error){if(error.status==='needs_attention')throw error;}
+          if(gate&&gate!=='parse_error')throw collectionError(gate);
+          if(redirect)throw collectionError(path(current)==='/account/access'?'needs_attention':'needs_login');
           if(tab.status==='complete')return;
           // A page may keep loading ads/media after its document is ready.
           try{if(await evaluate(()=>!!document.body&&['interactive','complete'].includes(document.readyState)))return;}catch{}
@@ -38,6 +45,15 @@ export function createPageAdapter(api,tabId,platform,{automatic=false,sleep=ms=>
       throw collectionError('network_error');
     },
     evaluate,
-    async waitForFunction(fn,_arg,options={}){const until=now()+(options.timeout||18000);while(now()<until){if(await evaluate(fn))return;await sleep(400);}throw collectionError('parse_error');}
+    async waitForFunction(fn,_arg,options={}){
+      const until=now()+(options.timeout||18000);
+      while(now()<until){
+        const gate=await evaluate(readPageGate);
+        if(gate&&gate!=='parse_error')throw collectionError(gate);
+        if(await evaluate(fn))return;
+        await sleep(400);
+      }
+      throw collectionError('parse_error');
+    }
   };
 }

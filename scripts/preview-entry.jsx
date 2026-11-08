@@ -173,6 +173,9 @@ if (params.has("login"))
     url: "",
     lastResult: "请在原浏览器登录抖音，完成后继续同步。",
   };
+if (params.has("warnings")) for (const [index, platform] of platforms.entries()) {
+  state.syncByPlatform[platform.id] = { jobId: `warning-${index}`, phase: index % 2 ? "parse_error" : "needs_login", platform: platform.id, provider: "browser", url: state.accounts[platform.id]?.url || "", lastResult: index % 2 ? "未能识别平台数据，请检查页面或更新接入。" : "请在原浏览器登录，完成后继续同步。" };
+}
 let previewPairId = null;
 window.__pswPreview = { completePair() { state.browserConnection = { ...state.browserConnection, paired: true, online: true, completedPairId: previewPairId }; } };
 window.fetch = async (url, opts) => {

@@ -8,6 +8,7 @@ window.__ModuleLoader__.load({
     const GITHUB_URL = "https://github.com/beianbai/cross-platform-account-dashboard";
     // User-facing history travels with the installed client; no remote fetch or auto-update.
     const releaseNotes = [
+      { version: "0.8.1", date: "2026-11-08", items: [["修复", "抖音登录弹窗和 X 登录跳转及时提示登录，保留已保存进度。"], ["优化", "平台警告支持关闭本次提示；新同步失败会再次提醒。"], ["优化", "浏览器连接状态提前展示，弹框更早进入内部滚动。"]] },
       { version: "0.8.0", date: "2026-11-08", items: [["优化", "上手指南支持再次点击收起，合并重复操作。"], ["新增", "macOS Safari 本地接入，已验证扩展启用、配对及哔哩哔哩同步。"]] },
       { version: "0.7.2", date: "2026-10-18", items: [["优化", "连接弹窗与设置使用清晰的浏览器状态卡片，扩展下载入口更醒目。"], ["修复", "浏览器授权成功后显示确认提示并收起已使用的连接码。"]] },
       { version: "0.7.1", date: "2026-10-18", items: [["优化", "浏览器连接统一使用扩展，简化连接界面，移除连接方式选择与浏览器命令配置。"]] },
@@ -441,6 +442,7 @@ window.__ModuleLoader__.load({
 @container(max-width:600px){.psw .psw-connection-card{flex-wrap:wrap;padding:15px;gap:12px}.psw .psw-connection-action{width:100%;padding-top:2px}.psw .psw-connection-action button{width:100%}.psw .psw-connection-icon{width:40px;height:40px}.psw .psw-connection-title{align-items:flex-start;flex-direction:column;gap:6px}}
 .psw .psw-toast-anchor{position:relative;flex-shrink:0;height:0;z-index:10;pointer-events:none}.psw .psw-toast-layer{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:max-content;max-width:calc(100% - 32px)}.psw .psw-toast-layer .psw-result{pointer-events:auto;margin:0;max-width:560px;box-shadow:0 8px 26px #17244820;overflow-wrap:anywhere}.psw .psw-result.warning{color:var(--warning-ink);background:var(--warning-bg);border-color:var(--warning-line)}.psw .psw-result.error{color:var(--danger);background:var(--error-bg);border-color:var(--error-line)}.psw .psw-result button{color:inherit}.psw .psw-result>span{min-width:0}.psw .psw-dialog{display:flex;flex-direction:column;overflow:hidden}.psw .psw-dialoghead{flex-shrink:0}.psw .psw-dialogbody{min-height:0;overflow:auto}.psw .psw-back-top{position:absolute;right:22px;bottom:20px;z-index:4;font-size:12px;min-height:38px;padding:7px 12px;box-shadow:var(--shadow);color:var(--muted)}.psw .psw-header-back{font-size:12px}.psw .psw-feedback-link{display:inline-flex;align-items:center;min-height:44px;padding:8px 4px;font-size:13px}.psw .psw-help-links{display:flex;gap:20px;align-items:center;margin-bottom:12px}.psw .psw-diagnostics{font-size:12px;line-height:1.8;resize:vertical}.psw .psw-top-actions{flex-wrap:wrap}.psw .psw-dialog .psw-toast-layer{max-width:calc(100% - 24px)}
 @container(max-width:520px){.psw .psw-top-actions{justify-content:flex-start}.psw .psw-back-top{right:16px;bottom:16px}.psw .psw-toast-layer{max-width:calc(100% - 24px)}}
+.psw .psw-dialog.psw-connection-dialog{max-height:min(680px,85%,85dvh)}.psw .psw-dialogbody{overscroll-behavior:contain;scrollbar-gutter:stable}.psw .psw-platform-issue{position:relative;padding-right:44px}.psw .psw-platform-issue .psw-issue-dismiss{position:absolute;top:4px;right:4px;display:grid;place-items:center;width:32px;height:32px;min-height:32px;padding:6px;color:inherit;border-color:transparent;background:transparent}.psw .psw-platform-issue .psw-issue-dismiss:hover{background:var(--warning-line)}
 @keyframes psw-notice-expire{0%{opacity:0;transform:translateY(-4px)}5%,94%{opacity:1;transform:none}100%{opacity:0;transform:translateY(-3px)}}
 @container(min-width:1120px){.psw .psw-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.psw .psw-card{padding:19px}.psw .psw-big{font-size:36px}.psw .psw-cardfooter{flex-wrap:wrap}.psw .psw-cardfooter>.psw-actions{margin-left:auto}}
 @container(max-width:740px){.psw main{padding:24px 22px 36px}.psw .psw-grid{grid-template-columns:1fr}.psw .psw-setting-grid{grid-template-columns:1fr;gap:15px}.psw .psw-metric-tabs button{padding:16px}.psw .psw-metric-tabs b{font-size:21px}.psw .psw-works{grid-template-columns:repeat(2,minmax(0,1fr))}.psw .psw-topbar{padding-left:max(18px,var(--dsh-frame-leading-clearance,0px));padding-right:18px;gap:8px}.psw .psw-brand{font-size:14px}.psw .psw-top-actions{gap:4px}.psw .psw-top-actions button{padding:8px 9px}}
@@ -902,7 +904,7 @@ window.__ModuleLoader__.load({
         ),
       );
     }
-    function Modal({ title, onClose, notification, scrollLabel, children }) {
+    function Modal({ title, onClose, notification, scrollLabel, className = "", children }) {
       const ref = React.useRef(null), closing = React.useRef(false);
       function close() {
         if (closing.current) return;
@@ -964,7 +966,7 @@ window.__ModuleLoader__.load({
           "div",
           {
             ref,
-            className: "psw-dialog",
+            className: "psw-dialog" + (className ? " " + className : ""),
             role: "dialog",
             "aria-modal": true,
             "aria-label": title,
@@ -1469,7 +1471,8 @@ window.__ModuleLoader__.load({
         [operationError, setOperationError] = React.useState(null),
         [guideMode, setGuideMode] = React.useState(savedGuide),
         [showTop, setShowTop] = React.useState(false),
-        [copyError, setCopyError] = React.useState("");
+        [copyError, setCopyError] = React.useState(""),
+        [dismissedIssues, setDismissedIssues] = React.useState({});
       const noticeSerial = React.useRef(0), pairingAttempt = React.useRef(null);
       const setNotice = (message, tone = "success") => setNoticeState(message ? { message, tone, id: ++noticeSerial.current } : null);
       const theme = themeMode === "system" ? (systemDark ? "dark" : "light") : themeMode;
@@ -1627,6 +1630,7 @@ window.__ModuleLoader__.load({
       };
       const sync = async (id, resume = false, path = "sync", options = {}) => {
         const a = state?.accounts[id];
+        setDismissedIssues(old => { const next = { ...old }; delete next[id]; return next; });
         manualJobs.current[id] = { status: JSON.stringify(status(id)), data: accountData(a) };
         setLocalSync(old => ({ ...old, [id]: { phase: "queued", running: true } }));
         const result = await action(path, {
@@ -1639,6 +1643,7 @@ window.__ModuleLoader__.load({
         return result;
       };
       const phaseLabel = (s, account) => unconfirmedHistory(s, account) ? "已更新 · 历史待确认" : ({ queued: "排队中", waiting: "等待浏览器", opening: "等待浏览器", connecting: "等待浏览器", reading: "正在读取", collecting: "正在读取", needs_login: "需要登录", needs_attention: "等待处理", complete: "同步完成", paused: "已暂停 · 可继续" }[s?.phase] || (s?.running ? "正在同步" : ""));
+      const issueIdentity = s => JSON.stringify([s?.jobId, s?.completedAt, s?.phase, s?.error, s?.lastResult]);
       const btn = (text, onClick, icon, cls = "", disabled = false) =>
         h(
           "button",
@@ -1703,8 +1708,9 @@ window.__ModuleLoader__.load({
         issues = platforms
           .map((p) => ({ p, s: platformErrors[p.id] ? { ...status(p.id), phase: "error", error: platformErrors[p.id] } : status(p.id) }))
           .filter(
-            ({ s }) =>
+            ({ p, s }) =>
               s &&
+              dismissedIssues[p.id] !== issueIdentity(s) &&
               (s.error ||
                 [
                   "needs_login",
@@ -1797,6 +1803,18 @@ window.__ModuleLoader__.load({
               pending,
             ),
           ),
+          h("button", {
+            type: "button", className: "psw-issue-dismiss psw-quiet",
+            "aria-label": `关闭${p.label}提示`, title: "关闭本次提示",
+            onClick: event => {
+              const region = event?.currentTarget?.closest?.(".psw-dialogbody, .psw-card, main");
+              setDismissedIssues(old => ({ ...old, [p.id]: issueIdentity(s) }));
+              requestAnimationFrame(() => {
+                const target = region?.matches?.(".psw-dialogbody") ? region : region?.querySelector?.("button, [tabindex='0']");
+                target?.focus?.({ preventScroll: true });
+              });
+            },
+          }, h(Icon, { name: "close", size: 16 })),
         );
       }
       const feedbackLink = () => h("a", { href: FEEDBACK_URL, target: "_blank", rel: "noopener noreferrer", className: "psw-feedback-link" }, "意见反馈 ↗");
@@ -2476,7 +2494,8 @@ window.__ModuleLoader__.load({
             {
               key: modal,
               notification,
-              scrollLabel: modal === "releases" ? "版本更新记录" : undefined,
+              scrollLabel: modal === "releases" ? "版本更新记录" : modal === "connection" ? "浏览器连接内容" : undefined,
+              className: modal === "connection" ? "psw-connection-dialog" : "",
               title:
                 modal === "releases" ? "更新记录" : modal === "help" ? "诊断信息" : modal === "add"
                   ? "添加平台"
@@ -2498,7 +2517,6 @@ window.__ModuleLoader__.load({
             modal === "unbind" && operationError?.path === "unbind" && operationError.platform === selected &&
               h("div", { className: "psw-notice error", role: "alert" }, operationError.message),
             modal === "add" && issues.filter(item => item.p.id === addPlatform).map(issue),
-            issues.length > 0 && modal === "connection" && issues.map(issue),
             modal === "releases"
               ? h("div", { className: "psw-release-list" }, releaseNotes.map(release =>
                   h("article", { className: "psw-release", key: release.version },
@@ -2696,6 +2714,7 @@ window.__ModuleLoader__.load({
                           null,
                           h(ConnectionCard, { connection }),
                           h("p", { className: "psw-note" }, "浏览器连接正常不代表各平台已登录；同步时会分别检查。"),
+                          issues.map(issue),
                           h(
                             "ol",
                             { className: "psw-instructions" },

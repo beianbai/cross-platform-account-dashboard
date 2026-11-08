@@ -12,11 +12,46 @@ export const COLLECTION_MESSAGES={
 export function collectionError(status){return Object.assign(Error(COLLECTION_MESSAGES[status]||COLLECTION_MESSAGES.parse_error),{status});}
 // Serialized into the visible page by either browser connector. Never inspect cookies or page stores.
 export function readPageGate(){
-  const visible=e=>!!e&&!!e.getBoundingClientRect().width&&!!e.getBoundingClientRect().height;
+  const visible=e=>{
+    if(!e||!e.getBoundingClientRect().width||!e.getBoundingClientRect().height)return false;
+    for(let node=e;node;node=node.parentElement){
+      if(node.hidden||node.getAttribute?.('aria-hidden')==='true')return false;
+      if(typeof getComputedStyle==='function'){
+        const style=getComputedStyle(node);
+        if(style.display==='none'||style.visibility==='hidden'||style.visibility==='collapse'||style.opacity==='0')return false;
+      }
+    }
+    return true;
+  };
   const any=s=>[...document.querySelectorAll(s)].some(visible);
-  if(any('[class*="captcha"],[id*="captcha"],iframe[src*="captcha"]')||/\/account\/access(?:\/|$)/.test(typeof location==='undefined'?'':location.pathname))return 'needs_attention';
-  const selectors=['.login-container','.login-panel','.bili-mini-login','.login-scan-wp','.header-login-entry','.login-btn','[data-e2e="login-title"]','[data-e2e="login-panel"]','[data-e2e="top-login-button"]','[data-testid="loginButton"]','input[autocomplete="username"]'];
-  if(selectors.some(any)||/\/i\/flow\/login(?:\/|$)/.test(typeof location==='undefined'?'':location.pathname))return 'needs_login';
+  const host=typeof location==='undefined'?'':location.hostname,path=typeof location==='undefined'?'':location.pathname.replace(/\/$/,'');
+  const isX=['x.com','twitter.com'].includes(host);
+  if(any('[class*="captcha"],[id*="captcha"],iframe[src*="captcha"]')||(isX&&path==='/account/access'))return 'needs_attention';
+  if(isX&&['/login','/i/flow/login'].includes(path))return 'needs_login';
+  // Login surfaces are stronger evidence than a generic "login" button or post text.
+  const panels=['.login-container','.login-panel','.bili-mini-login','.login-scan-wp','[data-e2e="login-title"]','[data-e2e="login-panel"]'];
+  if(panels.some(any))return 'needs_login';
+  const methods=['扫码登录','验证码登录','密码登录'];
+  const loginMethods=text=>methods.filter(method=>text.includes(method)).length>=2;
+  if([...document.querySelectorAll('[role="dialog"],[aria-modal="true"]')].some(e=>visible(e)&&loginMethods(e.innerText||'')))return 'needs_login';
+  // Classless Douyin dialogs still need a common overlay; identical post text is not a gate.
+  if(host==='www.douyin.com'&&typeof getComputedStyle==='function'){
+    const labelSelector='button,[role="button"],[role="tab"],h1,h2,h3,[role="heading"],span,div';
+    const content='article,[role="article"],[data-e2e="user-post-list"],[data-e2e*="comment"],[class*="comment"]';
+    const labels=[...document.querySelectorAll(labelSelector)].filter(e=>methods.includes(e.innerText?.trim())&&visible(e)&&!e.closest?.(content));
+    const checked=new Set();
+    for(const label of labels)for(let panel=label.parentElement;panel&&panel!==document.body;panel=panel.parentElement){
+      if(checked.has(panel))continue;checked.add(panel);
+      const text=panel.innerText||'';
+      if(text.length>1500||panel.closest?.(content))break;
+      const style=getComputedStyle(panel);
+      if(!visible(panel)||!(style.position==='fixed'||style.position==='absolute'&&Number(style.zIndex)>0))continue;
+      const choices=new Set([...panel.querySelectorAll(labelSelector)].filter(e=>visible(e)&&!e.closest?.(content)).map(e=>e.innerText?.trim()).filter(text=>methods.includes(text)));
+      if(choices.size>=2)return 'needs_login';
+    }
+  }
+  const ownProfile=['a[data-testid="AppTabBar_Profile_Link"]','li.user a[href*="/user/profile/"]','.header-avatar-wrap a[href*="space.bilibili.com/"]'].some(any);
+  if(!ownProfile&&['.header-login-entry','[data-e2e="top-login-button"]','[data-testid="loginButton"]','input[autocomplete="username"]'].some(any))return 'needs_login';
   if(any('[data-testid="error-detail"]')||/ERR_(?:INTERNET_DISCONNECTED|CONNECTION|NAME_NOT_RESOLVED)|无法访问此网站|This site can’t be reached/.test(document.body?.innerText||''))return 'network_error';
   return 'parse_error';
 }
@@ -29,20 +64,24 @@ export async function classifyCollectionError(error,page){
   return 'parse_error';
 }
 export async function collect(options){
-  try{const started=Date.now(),raw=await collectVisible(options);return options.collection?await traverseWorks({...options,collection:{...options.collection,budgetMs:Math.max(1,Math.min(90000,options.collection.budgetMs??90000)-(Date.now()-started))}},raw):raw;}catch(error){throw collectionError(await classifyCollectionError(error,options.page));}
+  try{const started=Date.now(),raw=await collectVisible(options);return options.collection?await traverseWorks({...options,readGate:()=>options.page.evaluate(readPageGate),collection:{...options.collection,budgetMs:Math.max(1,Math.min(90000,options.collection.budgetMs??90000)-(Date.now()-started))}},raw):raw;}catch(error){throw collectionError(await classifyCollectionError(error,options.page));}
 }
 async function collectVisible({task,page,platform,url=''}) {
+  const checkGate=async()=>{const gate=await page.evaluate(readPageGate);if(gate&&gate!=='parse_error')throw collectionError(gate);};
+  const goto=async url=>{await page.goto(url);await checkGate();};
+  const waitForFunction=async(...args)=>{await checkGate();await page.waitForFunction(...args);await checkGate();};
+  const evaluate=async fn=>{await checkGate();const result=await page.evaluate(fn);await checkGate();return result;};
   if(platform==='x') {
-    await page.goto(url||'https://x.com/home');
-    await page.waitForFunction(()=>!!document.querySelector('a[data-testid="AppTabBar_Profile_Link"]'),undefined,{timeout:18000});
-    const target=await page.evaluate(()=>document.querySelector('a[data-testid="AppTabBar_Profile_Link"]')?.href);
+    await goto(url||'https://x.com/home');
+    await waitForFunction(()=>!!document.querySelector('a[data-testid="AppTabBar_Profile_Link"]'),undefined,{timeout:18000});
+    const target=await evaluate(()=>document.querySelector('a[data-testid="AppTabBar_Profile_Link"]')?.href);
     const profile=value=>{try{const u=new URL(value),handle=u.pathname.replace(/^\/|\/$/g,'').toLowerCase();return u.protocol==='https:'&&!u.port&&!u.username&&!u.password&&PLATFORM_BY_ID.x.hosts.includes(u.hostname)&&PLATFORM_BY_ID.x.profilePattern.test(u.pathname)&&!X_RESERVED_HANDLES.has(handle)?'https://x.com/'+handle:'';}catch{return '';}};
     const ownURL=profile(target);
     if(!ownURL)throw collectionError('parse_error');
     if(url&&profile(url)!==ownURL)throw collectionError('account_mismatch');
-    await page.goto(ownURL);
-    await page.waitForFunction(()=>!!document.querySelector('[data-testid="UserName"]'),undefined,{timeout:18000});
-    const raw=await page.evaluate(()=>{
+    await goto(ownURL);
+    await waitForFunction(()=>!!document.querySelector('[data-testid="UserName"]'),undefined,{timeout:18000});
+    const raw=await evaluate(()=>{
       const root=document.querySelector('[data-testid="primaryColumn"]');
       if(!root)return null;
       const visible=e=>!!e&&!!e.getBoundingClientRect().width&&!!e.getBoundingClientRect().height;
@@ -74,15 +113,15 @@ async function collectVisible({task,page,platform,url=''}) {
     return raw;
   }
   if(platform==='xiaohongshu') {
-    await page.goto(url||'https://www.xiaohongshu.com/explore');
+    await goto(url||'https://www.xiaohongshu.com/explore');
     if(!url) {
-      await page.waitForFunction(()=>!!document.querySelector('li.user a[href*="/user/profile/"]'),undefined,{timeout:18000});
-      const target=await page.evaluate(()=>document.querySelector('li.user a[href*="/user/profile/"]')?.href);
+      await waitForFunction(()=>!!document.querySelector('li.user a[href*="/user/profile/"]'),undefined,{timeout:18000});
+      const target=await evaluate(()=>document.querySelector('li.user a[href*="/user/profile/"]')?.href);
       if(!/^https:\/\/www\.xiaohongshu\.com\/user\/profile\/[a-f0-9]{24}(?:\?|$)/.test(target||''))throw Error('请在小红书完成登录');
-      await page.goto(target);
+      await goto(target);
     }
-    await page.waitForFunction(()=>!!document.querySelector('.user-name')&&document.querySelector('.user-interactions')?.innerText.includes('粉丝'),undefined,{timeout:18000});
-    return await page.evaluate(()=>{
+    await waitForFunction(()=>!!document.querySelector('.user-name')&&document.querySelector('.user-interactions')?.innerText.includes('粉丝'),undefined,{timeout:18000});
+    return await evaluate(()=>{
       const txt=s=>document.querySelector(s)?.innerText?.trim()||'';
       const stats=txt('.user-interactions').split(/\s+/);
       const value=label=>{const i=stats.indexOf(label);return i>0?stats[i-1]:null;};
@@ -92,9 +131,9 @@ async function collectVisible({task,page,platform,url=''}) {
     });
   }
   if(platform==='douyin') {
-    await page.goto(url||'https://www.douyin.com/user/self');
-    await page.waitForFunction(()=>/粉丝\s*[0-9]/.test(document.querySelector('[data-e2e="user-info-fans"]')?.innerText||'')&&!!document.querySelector('[data-e2e="user-post-list"]'),undefined,{timeout:18000});
-    return await page.evaluate(()=>{
+    await goto(url||'https://www.douyin.com/user/self');
+    await waitForFunction(()=>/粉丝\s*[0-9]/.test(document.querySelector('[data-e2e="user-info-fans"]')?.innerText||'')&&!!document.querySelector('[data-e2e="user-post-list"]'),undefined,{timeout:18000});
+    return await evaluate(()=>{
       const root=document.querySelector('[data-e2e="user-info"]');
       const text=root.innerText;
       const metric=label=>text.match(new RegExp(label+'\\s*([0-9.,万亿kKwWmM+]+)'))?.[1]??null;
@@ -107,17 +146,17 @@ async function collectVisible({task,page,platform,url=''}) {
   }
   if(platform==='bilibili') {
     // Resolve the signed-in header identity even when a bound URL was supplied.
-    await page.goto('https://www.bilibili.com');
-    await page.waitForFunction(()=>!!document.querySelector('.header-avatar-wrap a[href*="space.bilibili.com/"]'),undefined,{timeout:18000});
-    const own=await page.evaluate(()=>document.querySelector('.header-avatar-wrap a[href*="space.bilibili.com/"]')?.href);
+    await goto('https://www.bilibili.com');
+    await waitForFunction(()=>!!document.querySelector('.header-avatar-wrap a[href*="space.bilibili.com/"]'),undefined,{timeout:18000});
+    const own=await evaluate(()=>document.querySelector('.header-avatar-wrap a[href*="space.bilibili.com/"]')?.href);
     const identity=value=>{try{const u=new URL(value);return u.protocol==='https:'&&!u.port&&!u.username&&!u.password&&u.hostname==='space.bilibili.com'&&/^\/[1-9][0-9]{0,19}\/?$/.test(u.pathname)?u.pathname.split('/')[1]:null;}catch{return null;}};
     const id=identity(own);
     if(!id)throw collectionError('parse_error');
     if(url&&identity(url)!==id)throw collectionError('account_mismatch');
     const base='https://space.bilibili.com/'+id;
-    await page.goto(base+'/upload');
-    await page.waitForFunction(()=>!!document.querySelector('.nickname')&&document.querySelector('.nav-statistics')?.innerText.includes('粉丝数'),undefined,{timeout:18000});
-    const raw=await page.evaluate(()=>{
+    await goto(base+'/upload');
+    await waitForFunction(()=>!!document.querySelector('.nickname')&&document.querySelector('.nav-statistics')?.innerText.includes('粉丝数'),undefined,{timeout:18000});
+    const raw=await evaluate(()=>{
       const text=document.querySelector('.nav-statistics')?.innerText||'';
       const metric=label=>text.match(new RegExp(label+'\\s*([0-9.,万亿kKwWmM+]+)'))?.[1]??null;
       const upload=[...document.querySelectorAll('a')].find(e=>/\/upload$/.test(e.pathname));
@@ -135,13 +174,13 @@ async function collectVisible({task,page,platform,url=''}) {
       coverage[type]={total,loaded:0,status:'unavailable'};
       if(total==='0'){coverage[type].status='empty';continue;}
       try{
-        if(type!=='video')await page.goto(base+'/upload/'+type);
-        await page.waitForFunction(()=>{
+        if(type!=='video')await goto(base+'/upload/'+type);
+        await waitForFunction(()=>{
           const type=location.pathname.split('/').at(-1);
           const root=document.querySelector('.upload-content .'+type);
           return !!root&&(!!root.querySelector('.empty-content')||root.querySelectorAll('a[href]').length>0);
         },undefined,{timeout:12000});
-        const section=await page.evaluate(()=>{
+        const section=await evaluate(()=>{
           const type=location.pathname.split('/').at(-1),root=document.querySelector('.upload-content .'+type);
           if(!root)return null;
           const patterns={video:/^\/video\/BV[A-Za-z0-9]+\/?$/,opus:/^\/(?:opus\/\d+|read\/cv\d+)\/?$/,audio:/^\/audio\/au\d+\/?$/};
