@@ -894,25 +894,38 @@ test("existing accounts keep guide closed and home or settings can reopen it", (
   assert(guide(app.render()));
   assert.match(text(app.render()), /我的账号/);
 });
-test("skip and collapse persist only a versioned preference and reopening remains available", () => {
-  const app = fixture({ empty: true });
-  button(app.render(), "跳过指南").props.onClick();
+test("guide header toggles both ways, persists collapse and preserves account data", () => {
+  const app = fixture();
+  const accounts = JSON.stringify(app.state.accounts);
   assert(!guide(app.render()));
+  button(app.render(), "上手指南").props.onClick();
+  assert(guide(app.render()));
+  assert.equal(button(app.render(), "上手指南").props["aria-expanded"], true);
+  assert(!nodes(guide(app.render())).some(n => n.type === "button" && text(n) === "跳过"));
+  button(app.render(), "上手指南").props.onClick();
+  assert(!guide(app.render()));
+  assert.equal(button(app.render(), "上手指南").props["aria-expanded"], false);
   const saved = app.storage.get("psw-onboarding-v1");
-  assert.deepEqual(JSON.parse(saved), { version: 1, mode: "skipped" });
-  const restored = fixture({ empty: true, storedGuide: saved });
-  assert(!guide(restored.render()));
-  button(restored.render(), "上手指南").props.onClick();
-  assert(guide(restored.render()));
-  assert.equal(guideStep(restored.render(), 0).props["data-complete"], false);
-  button(restored.render(), "收起指南").props.onClick();
-  assert.equal(JSON.parse(restored.storage.get("psw-onboarding-v1")).mode, "collapsed");
+  assert.deepEqual(JSON.parse(saved), { version: 1, mode: "collapsed" });
+  assert(!guide(fixture({ storedGuide: saved }).render()));
+  assert.equal(JSON.stringify(app.state.accounts), accounts);
+  assert.equal(app.calls.length, 0);
 });
-test("missing, malformed and inaccessible storage never blocks first-run guide", () => {
+test("legacy skipped preferences stay closed and can be reopened and collapsed", () => {
+  const app = fixture({ empty: true, storedGuide: '{"version":1,"mode":"skipped"}' });
+  assert(!guide(app.render()));
+  button(app.render(), "上手指南").props.onClick();
+  assert(guide(app.render()));
+  assert.equal(guideStep(app.render(), 0).props["data-complete"], false);
+  button(app.render(), "收起指南").props.onClick();
+  assert(!guide(app.render()));
+  assert.equal(JSON.parse(app.storage.get("psw-onboarding-v1")).mode, "collapsed");
+});
+test("missing, malformed and inaccessible storage never blocks first-run guide or toggle", () => {
   for (const options of [{}, { storedGuide: "broken" }, { storedGuide: '{"version":99,"mode":"skipped"}' }, { storageUnavailable: true }]) {
     const app = fixture({ empty: true, ...options });
     assert(guide(app.render()));
-    button(app.render(), "跳过指南").props.onClick();
+    button(app.render(), "上手指南").props.onClick();
     assert(!guide(app.render()));
     button(app.render(), "上手指南").props.onClick();
     assert(guide(app.render()));

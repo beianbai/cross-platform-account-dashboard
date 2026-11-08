@@ -76,3 +76,36 @@ test('pair completion identifies the successful attempt even when the browser la
  }
  await bridge.revoke();assert.equal(bridge.status().completedPairId,null);
 });
+
+
+test('Safari pairing pins its extension origin, survives restart and rejects forged web origins',async t=>{
+ const {bridge,root}=await setup(t),code=new URL(bridge.beginPair().code);
+ const safariOrigin='safari-web-extension://A1B2C3D4-1234-5678-ABCD-0123456789AB';
+ for(const Origin of [
+  'https://safari-web-extension.example',
+  safariOrigin+'.evil.test',
+  safariOrigin+'/path',
+  'safari-web-extension://invalid',
+  'safari-web-extension://a1b2c3d4-1234-5678-abcd-0123456789ab@evil.test',
+  'null',
+ ])assert.equal((await call(code.port,code.hash.slice(1),'/pair',{}, {Origin})).status,403);
+ const preflight=await fetch(`http://127.0.0.1:${code.port}/pair`,{method:'OPTIONS',headers:{Origin:safariOrigin,'Access-Control-Request-Method':'POST','Access-Control-Request-Headers':'authorization,content-type'}});
+ assert.equal(preflight.status,204);
+ assert.equal(preflight.headers.get('access-control-allow-origin'),safariOrigin);
+ assert.equal((await call(code.port,'0'.repeat(64),'/pair',{}, {Origin:safariOrigin})).status,401);
+ const response=await call(code.port,code.hash.slice(1),'/pair',{label:'Safari'},{Origin:safariOrigin});
+ assert.equal(response.status,200);
+ const {token}=await response.json();
+ assert.equal((await call(code.port,token,'/poll',{}, {Origin:safariOrigin})).status,200);
+ assert.equal((await call(code.port,token,'/poll',{}, {Origin:'safari-web-extension://b1b2c3d4-1234-5678-abcd-0123456789ab'})).status,401);
+ assert.equal((await call(code.port,token,'/poll')).status,401);
+ const pending=bridge.run({platform:'douyin'});
+ const job=(await(await call(code.port,token,'/poll',{}, {Origin:safariOrigin})).json()).job;
+ assert.equal((await call(code.port,token,'/result',{id:job.id,status:'needs_login'},{Origin:safariOrigin})).status,200);
+ assert.equal((await pending).status,'needs_login');
+ await bridge.close();
+ const restarted=await createBrowserBridge(root);t.after(()=>restarted.close());
+ assert.equal((await call(restarted.status().port,token,'/poll',{}, {Origin:safariOrigin})).status,200);
+ await restarted.revoke();
+ assert.equal((await call(restarted.status().port,token,'/poll',{}, {Origin:safariOrigin})).status,401);
+});

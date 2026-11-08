@@ -32,7 +32,7 @@ test('background acknowledges invalid task and failed tab creation instead of le
  }
 });
 test('packaged connectors have restricted permissions and no remote code policy',async()=>{
- for(const type of ['chromium','firefox']){const manifest=JSON.parse(await readFile(new URL('../lib/browser-extension/'+type+'/manifest.json',import.meta.url),'utf8'));assert.deepEqual(manifest.permissions,['storage','scripting','alarms']);assert(!manifest.host_permissions.includes('<all_urls>'));assert.equal(manifest.content_security_policy.extension_pages,"script-src 'self'; object-src 'none'");assert(type==='chromium'?manifest.background.service_worker:manifest.background.scripts);}
+ for(const type of ['chromium','firefox','safari']){const manifest=JSON.parse(await readFile(new URL('../lib/browser-extension/'+type+'/manifest.json',import.meta.url),'utf8'));assert.deepEqual(manifest.permissions,['storage','scripting','alarms']);assert(!manifest.host_permissions.includes('<all_urls>'));assert.equal(manifest.content_security_policy.extension_pages,"script-src 'self'; object-src 'none'");assert(type==='firefox'?manifest.background.scripts:manifest.background.service_worker);}
 });
 
 test('X routes reject impostor domains and system paths while allowing a personal profile',()=>{

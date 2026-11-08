@@ -29,7 +29,7 @@ Run it on its own or inside [DSH Desktop](https://dshdesktop.com/). Each platfor
 
 ## Get started
 
-Choose a launch option, then follow the four steps below. The home page’s “上手指南” (Getting started) also shows your current step; you can skip it and reopen it anytime.
+Choose a launch option, then follow the four steps below. The home page’s “上手指南” (Getting started) also shows your current step; you can collapse it and reopen it anytime. Click the header button again to collapse it.
 
 | Launch option | Get started |
 | --- | --- |
@@ -106,9 +106,18 @@ The Release asset `cross-platform-account-dashboard.tgz` is for **DSH Desktop**.
 | Chrome 120+ / current Edge | Load and pair the local Chromium connector |
 | Other Chromium browsers | Require MV3, scripting, alarms, and local extensions; not individually verified |
 | Firefox 115+ | Temporarily load `firefox/manifest.json`; reload it after restarting Firefox |
-| Safari / mobile browsers / managed browsers that block local extensions | No collection adapter is available; existing cached data can still be viewed |
+| Safari 17+ on macOS (local trial) | Adapter resources and an Xcode build script are included; local enablement, pairing, and Bilibili sync verified by the user; no production-signed installer. See [Safari trial instructions — 中文](extension/README.md#safari-本地试用macos) |
+| Mobile browsers / managed browsers that block local extensions | No collection adapter is available; existing cached data can still be viewed |
 
 Only one extension connection is authorized at a time; pairing again replaces the previous credentials. After updating the dashboard, [update the browser connector too — 中文](extension/README.md#060-更新).
+
+### Safari development and installation
+
+Safari supports Web Extensions. The intended user flow is: **install our Safari connector → enable it and grant website access → pair with the dashboard → sign in to platforms in Safari and sync**. End users do not need Xcode. The containing Mac app is Apple's extension packaging requirement.
+
+Delivery remains incomplete. Version 0.8.0 now builds on macOS 27.2 / Xcode 27.2, and the app and embedded extension pass local signature integrity checks. The user verified Safari enablement, pairing, and signed-in Bilibili sync. Signed-out Xiaohongshu and Bilibili are classified correctly; Douyin and X have a known login-detection defect. Scheduled sync, restart recovery, and complete signed-in collection on other platforms remain unverified. The ad-hoc signed development app has no developer certificate or notarization and is not a production installer.
+
+Xcode is a developer tool. For this local collaboration, the user has installed it; the developer handles project generation, compilation, and debugging. The user handles Safari security settings, site access, and platform sign-in. See the [installation and native acceptance steps — 中文](extension/README.md#safari-本地试用macos). The user authorized separate local commits for onboarding/Safari integration and the follow-up login/UI fixes. Pushes and publication are not authorized.
 
 ## Data and collection limits
 

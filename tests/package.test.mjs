@@ -18,7 +18,7 @@ test('DSH release archive loads its client and serves connectors without the sta
   execFileSync('pnpm', ['pack', '--out', archive], { cwd: repository, stdio: 'pipe' });
   const entries = execFileSync('tar', ['-tzf', archive], { encoding: 'utf8' }).split('\n');
   assert(!entries.includes('package/lib/standalone.js'), 'DSH archive must not include the standalone browser bundle');
-  for (const name of ['lib/client.js', 'lib/browser-connector.zip', 'lib/browser-extension/chromium/manifest.json', 'lib/browser-extension/firefox/manifest.json', 'dsh/index.js', 'cordis.patch.yml', 'standalone/server.mjs', 'standalone/client-entry.jsx', 'scripts/build-standalone.mjs']) {
+  for (const name of ['lib/client.js', 'lib/browser-connector.zip', 'lib/browser-extension/chromium/manifest.json', 'lib/browser-extension/firefox/manifest.json', 'lib/browser-extension/safari/manifest.json', 'lib/browser-extension/build-safari.mjs', 'lib/browser-extension/README.md', 'extension/build-safari.mjs', 'dsh/index.js', 'cordis.patch.yml', 'standalone/server.mjs', 'standalone/client-entry.jsx', 'scripts/build-standalone.mjs']) {
     assert(entries.includes('package/' + name), `Missing release file: ${name}`);
   }
   execFileSync('tar', ['-xzf', archive, '-C', temporary]);
@@ -34,4 +34,6 @@ test('DSH release archive loads its client and serves connectors without the sta
   assert.equal(download.status, 200);
   assert.equal(download.headers.get('content-type'), 'application/zip');
   assert.deepEqual(Buffer.from(await download.arrayBuffer()), await readFile(join(root, 'lib/browser-connector.zip')));
+  const zipEntries = execFileSync('unzip', ['-Z1', join(root, 'lib/browser-connector.zip')], { encoding: 'utf8' }).split('\n');
+  for (const name of ['safari/manifest.json', 'safari/background.js', 'safari/popup.html', 'build-safari.mjs', 'README.md']) assert(zipEntries.includes(name), `Missing connector download file: ${name}`);
 });

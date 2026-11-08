@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {PLATFORMS,profileURL} from './core.mjs';
 const secret=()=>randomBytes(32).toString('hex');
 const equal=(a,b)=>typeof a==='string'&&typeof b==='string'&&a.length===b.length&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
-const extensionOrigin=o=>!o||/^chrome-extension:\/\/[a-p]{32}$/.test(o)||/^moz-extension:\/\/[a-f0-9-]{36}$/i.test(o);
+const extensionOrigin=o=>!o||/^chrome-extension:\/\/[a-p]{32}$/.test(o)||/^moz-extension:\/\/[a-f0-9-]{36}$/i.test(o)||/^safari-web-extension:\/\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(o);
 export async function createBrowserBridge(root,{jobTimeout=180000}={}){
   const filename=join(root,'browser-connection.json');let saved={version:1,port:0,token:'',label:'',origin:''};
   try {saved=JSON.parse(await readFile(filename,'utf8'));if(saved.version!==1||!Number.isInteger(saved.port)||saved.port<1||saved.port>65535||!(saved.token===''||/^[a-f0-9]{64}$/.test(saved.token))||typeof saved.label!=='string'||!extensionOrigin(saved.origin))throw Error('invalid');}
