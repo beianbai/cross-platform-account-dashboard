@@ -1,0 +1,21 @@
+{
+  "version": "0.8.6",
+  "sha256": "1ea168c00a8e25ba16024937558ff6abbff50e04cb7049dbb7da57cac1137c3b",
+  "architectures": [
+    "arm64",
+    "x86_64"
+  ],
+  "instructionsSha256": "faf295265cbec8ac226c18ab3aecd90e02a7c9af695c6e0cad6ef87153ec3427",
+  "resources": {
+    "background.js": "7fa8a0aaf6444461d6bb72e8eb14bb2cfa07c6b4630f8e24dfc96c7271d9fca4",
+    "icon128.png": "db69ce549df667dcf4e41417378d0bae98c38fe3a906839b1106cbb446cbcff8",
+    "icon16.png": "ff78d034514bad5cf3ecb540fd2e5b43940575979c25e765771d06b7f96993fa",
+    "icon32.png": "5ceae4c633629e0ac056ff32c38f5a64af055e85409f9da9cc887a540c3a22bc",
+    "icon48.png": "00df3845baa1254b5bdc793592e646b7ea5d5509e39909d88ade514dc264da66",
+    "logo.svg": "5dcc1722188a25fa52321b098c71ad077e1f46b1f23709cbfe54f23eedaa4990",
+    "manifest.json": "2d3914bc2c797db459bf8efde154356e78d3dca108c163b6c43858d8db0dd897",
+    "popup.css": "513c01dadd1cb2d8f378d56c4b8dfc33f10630a77e08fcac2e14141e6a285c14",
+    "popup.html": "b415d05e5ac7728f1cc6951ac641b0e443a08cf062c83dbe3768c98041288777",
+    "popup.js": "6b4b342b563108a91eef470263ff50e12aa9495993a4e494844cf416e41411f6"
+  }
+}

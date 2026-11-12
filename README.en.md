@@ -71,7 +71,7 @@ pnpm start
 
 For Chrome / Edge:
 
-1. Click “连接浏览器” (Connect browser), then “点击下载浏览器扩展” (Download browser extension), and extract the ZIP file.
+1. Click “连接浏览器” (Connect browser), then “下载 Chrome / Edge / Firefox 扩展”, and extract the ZIP file. For Safari, use the separate “下载 Safari 连接器（macOS）” button.
 2. Open `chrome://extensions` or `edge://extensions`, enable Developer mode, and load the extracted `chromium` folder as an unpacked extension.
 3. Generate a connection code in the dashboard, paste it into the connector from your browser toolbar, and authorize it. Codes **expire after two minutes and work only once**. After authorization, the dashboard shows a confirmation toast and the connection card switches to “已连接” (Connected).
 
@@ -106,18 +106,18 @@ The Release asset `cross-platform-account-dashboard.tgz` is for **DSH Desktop**.
 | Chrome 120+ / current Edge | Load and pair the local Chromium connector |
 | Other Chromium browsers | Require MV3, scripting, alarms, and local extensions; not individually verified |
 | Firefox 115+ | Temporarily load `firefox/manifest.json`; reload it after restarting Firefox |
-| Safari 17+ on macOS (local trial) | Adapter resources and an Xcode build script are included; local enablement, pairing, and Bilibili sync verified by the user; no production-signed installer. See [Safari trial instructions — 中文](extension/README.md#safari-本地试用macos) |
+| Safari 17+ on macOS | Prebuilt universal Intel / Apple silicon app; no Xcode required. No Developer ID or notarization; requires allowing unsigned extensions. See [installation instructions — 中文](extension/SAFARI-INSTALL.txt) |
 | Mobile browsers / managed browsers that block local extensions | No collection adapter is available; existing cached data can still be viewed |
 
 Only one extension connection is authorized at a time; pairing again replaces the previous credentials. After updating the dashboard, [update the browser connector too — 中文](extension/README.md#060-更新).
 
-### Safari development and installation
+### Safari installation
 
-Safari supports Web Extensions. The intended user flow is: **install our Safari connector → enable it and grant website access → pair with the dashboard → sign in to platforms in Safari and sync**. End users do not need Xcode. The containing Mac app is Apple's extension packaging requirement.
+In the dashboard connection dialog, choose “下载 Safari 连接器（macOS）”. Extract the ZIP, move the app to Applications, open it, and follow INSTALL.txt to enable website access and pair. Users need neither Xcode nor a developer membership.
 
-Delivery remains incomplete. The local connector builds on macOS 27.2 / Xcode 27.2, and the app and embedded extension pass local signature integrity checks. The user verified Safari enablement, pairing, and signed-in Bilibili sync. Signed-out Xiaohongshu and Bilibili are classified correctly; Version 0.8.1 fixes Douyin and X login detection with automated regression coverage; real Safari retesting after updating the extension remains pending. Scheduled sync, restart recovery, and complete signed-in collection on other platforms remain unverified. The ad-hoc signed development app has no developer certificate or notarization and is not a production installer.
+The application uses an ad-hoc signature, has no Apple developer certificate, and is not notarized. macOS may block it, and installation is not guaranteed on every computer. Safari requires Allow Unsigned Extensions; this setting resets when Safari quits and must be enabled again. This package is distributed directly, outside the App Store.
 
-Xcode is a developer tool. For this local collaboration, the user has installed it; the developer handles project generation, compilation, and debugging. The user handles Safari security settings, site access, and platform sign-in. See the [installation and native acceptance steps — 中文](extension/README.md#safari-本地试用macos). The user authorized separate local commits for onboarding/Safari integration and the follow-up login/UI fixes. Pushes and publication are not authorized.
+To update, quit Safari and replace the original app, preserving pairing and data. Avoid opening duplicate copies. Maintainers handle compilation; see the [developer instructions — 中文](extension/README.md#safari-本地试用macos). Validation records remain in docs/validation.
 
 ## Data and collection limits
 

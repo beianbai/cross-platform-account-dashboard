@@ -8,8 +8,13 @@ window.__ModuleLoader__.load({
     const GITHUB_URL = "https://github.com/beianbai/cross-platform-account-dashboard";
     // User-facing history travels with the installed client; no remote fetch or auto-update.
     const releaseNotes = [
+      { version: "0.8.6", date: "2026-11-11", items: [["修复", "修复抖音未登录时误报无法识别数据的问题，提示登录后继续同步。"]] },
+      { version: "0.8.5", date: "2026-11-10", items: [["修复", "改善抖音本人主页的登录表单识别。"]] },
+      { version: "0.8.4", date: "2026-11-09", items: [["新增", "排队、读取中均可取消同步，保留已保存的数据和进度。"], ["优化", "浏览器离线立即提醒，扩展未接单最多等待 45 秒。"]] },
+      { version: "0.8.3", date: "2026-11-09", items: [["修复", "补充抖音完整登录表单与 X 访客资料拦截层识别，提示登录后继续同步。"], ["修复", "改善登录界面的可见性判断。"]] },
+      { version: "0.8.2", date: "2026-11-09", items: [["修复", "恢复小红书、哔哩哔哩明确登录入口识别，检查主页跳转后的登录提示。"], ["优化", "网站权限不足和页面读取失败时显示具体原因。"]] },
       { version: "0.8.1", date: "2026-11-08", items: [["修复", "抖音登录弹窗和 X 登录跳转及时提示登录，保留已保存进度。"], ["优化", "平台警告支持关闭本次提示；新同步失败会再次提醒。"], ["优化", "浏览器连接状态提前展示，弹框更早进入内部滚动。"]] },
-      { version: "0.8.0", date: "2026-11-08", items: [["优化", "上手指南支持再次点击收起，合并重复操作。"], ["新增", "macOS Safari 本地接入，已验证扩展启用、配对及哔哩哔哩同步。"]] },
+      { version: "0.8.0", date: "2026-11-08", items: [["优化", "上手指南支持再次点击收起，合并重复操作。"], ["新增", "支持通过 macOS Safari 连接器配对浏览器并同步账号。"]] },
       { version: "0.7.2", date: "2026-10-18", items: [["优化", "连接弹窗与设置使用清晰的浏览器状态卡片，扩展下载入口更醒目。"], ["修复", "浏览器授权成功后显示确认提示并收起已使用的连接码。"]] },
       { version: "0.7.1", date: "2026-10-18", items: [["优化", "浏览器连接统一使用扩展，简化连接界面，移除连接方式选择与浏览器命令配置。"]] },
       { version: "0.7.0", date: "2026-10-17", items: [["新增", "独立版通过固定地址和配对码授权，支持多个浏览器分别访问与撤销。"], ["优化", "可在终端或设置中重新取码，无须重启服务；旧版访问授权需重新配对，业务数据保留。"]] },
@@ -1435,6 +1440,46 @@ window.__ModuleLoader__.load({
               h("li", null, "重新启动并核对账号和历史记录。备份中的同步计划也会恢复；需要时重新连接浏览器。")),
             h("p", null, "恢复会替换当前业务数据，不会合并备份之后新增的记录。"))));
     }
+    function ConnectorDownload({ safari = false, onNotice }) {
+      const [busy, setBusy] = React.useState(false), [failure, setFailure] = React.useState("");
+      const downloading = React.useRef(false);
+      const href = new URL("api/personal-social/browser/download" + (safari ? "/safari" : ""), document.baseURI).pathname;
+      const filename = safari ? "account-dashboard-safari.zip" : "personal-social-browser-connector.zip";
+      async function download(event) {
+        event.preventDefault();
+        if (downloading.current) return;
+        downloading.current = true; setBusy(true); setFailure("");
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30000);
+        try {
+          const response = await fetch(href, { credentials: "same-origin", cache: "no-store", signal: controller.signal });
+          if (!response.ok) {
+            if (response.status === 401) throw Error("访问授权已失效，请重新打开工作台后下载。");
+            if (response.status === 404) throw Error("下载服务尚未就绪，请重启工作台服务后重试。");
+            throw Error("安装包暂时无法下载，请稍后重试。");
+          }
+          if (!/^application\/zip(?:;|$)/i.test(response.headers.get("Content-Type") || "")) {
+            throw Error("下载服务未返回安装包，请重新打开工作台后重试。");
+          }
+          const blob = await response.blob();
+          const signature = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
+          if (signature.length !== 4 || signature[0] !== 80 || signature[1] !== 75 || signature[2] !== 3 || signature[3] !== 4) {
+            throw Error("下载的安装包不完整，请重试。");
+          }
+          const url = URL.createObjectURL(blob), link = document.createElement("a");
+          link.href = url; link.download = filename;
+          document.body.appendChild(link);
+          try { link.click(); } finally { link.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000); }
+          onNotice("已发起连接器下载，请在下载位置确认保存。");
+        } catch (error) {
+          setFailure(error.name === "AbortError" ? "下载超时，请检查连接后重试。" : error.message || "下载未完成，请重试。");
+        } finally { clearTimeout(timeout); downloading.current = false; setBusy(false); }
+      }
+      return h(React.Fragment, null,
+        h("a", { className: "psw-download-extension", href, download: filename, onClick: download, "aria-busy": busy, "aria-disabled": busy },
+          h(Icon, { name: "download", size: 17 }), busy ? "正在下载安装包…" : safari ? "下载 Safari 连接器（macOS）" : "下载 Chrome / Edge / Firefox 扩展"),
+        failure && h("p", { className: "psw-field-error", role: "alert" }, failure));
+    }
     function ConnectionCard({ connection, children }) {
       const status = connection?.available === false ? "unavailable" : connection?.paired ? connection.online ? "online" : "offline" : "unpaired";
       const labels = { online: "已连接", offline: "已授权 · 离线", unpaired: "等待授权", unavailable: "服务不可用" };
@@ -2744,20 +2789,10 @@ window.__ModuleLoader__.load({
                             h(
                               "li",
                               null,
-                              h(
-                                "a",
-                                {
-                                  className: "psw-download-extension",
-                                  href: new URL(
-                                    "api/personal-social/browser/download",
-                                    document.baseURI,
-                                  ).pathname,
-                                  download:
-                                    "personal-social-browser-connector.zip",
-                                },
-                                h(Icon, { name: "download", size: 17 }), "点击下载浏览器扩展",
-                              ),
-                              h("p", { className: "psw-install-hint" }, "下载并解压 ZIP；Chrome / Edge 加载 chromium 文件夹。Firefox 与 Safari 的安装方式见下方。"),
+                              h(ConnectorDownload, { onNotice: setNotice }),
+                              h("p", { className: "psw-install-hint" }, "下载并解压 ZIP。Chrome / Edge 加载 chromium 文件夹；Firefox 的安装方式见下方。此下载包不适用于 Safari。"),
+                              h(ConnectorDownload, { safari: true, onNotice: setNotice }),
+                              h("p", {className:"psw-install-hint"}, "解压后打开应用，无需 Xcode。此安装包未经 Apple 公证，macOS 可能阻止打开；Safari 需开启“允许未签名的扩展”，退出 Safari 后需再次开启。"),
                             ),
                             h(
                               "li",
@@ -2816,7 +2851,7 @@ window.__ModuleLoader__.load({
                           h(
                             "details",
                             null,
-                            h("summary", null, "Firefox / Safari 安装与支持范围"),
+                            h("summary", null, "安装说明与支持范围"),
                             h(
                               "p",
                               {
@@ -2825,8 +2860,8 @@ window.__ModuleLoader__.load({
                               },
                               "Firefox 可在 about:debugging 临时加载 firefox 文件夹内的 manifest.json，重启后需重新加载。",
                             ),
-                            h("p", { className: "psw-muted", style: { fontSize: 12 } }, "Safari（macOS）：本地测试版已验证扩展启用、配对及哔哩哔哩同步。Xcode 仅用于开发者构建；安装说明见下载包内 README。正式签名安装版尚未提供，抖音与 X 的未登录识别修复中。"),
-                            h("p", { className: "psw-muted", style: { fontSize: 12 } }, "移动浏览器尚未适配。打开系统默认浏览器并不代表已授权读取；一次只连接一个浏览器。"),
+                            h("p", { className: "psw-muted", style: { fontSize: 12 } }, "Safari：将应用放入“应用程序”并打开，在 Safari 设置中启用扩展、允许对应网站，再用连接码配对。完整步骤见下载包内 INSTALL.txt。"),
+                            h("p", { className: "psw-muted", style: { fontSize: 12 } }, "仅支持桌面浏览器；一次只连接一个浏览器。"),
                           ),
                         ),
                         addPlatform &&

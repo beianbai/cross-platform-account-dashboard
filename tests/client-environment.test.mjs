@@ -10,7 +10,7 @@ const code = await readFile(
 const value = (n) => ({ value: n, display: String(n), approximate: false });
 const day = (n) =>
   new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
-function fixture({ paired = false, hidden = false, phase = null, syncFailure = false, syncGate = null, storedTheme = null, systemDark = false, requestFailures = {}, empty = false, storedGuide = null, storageUnavailable = false, initialLoading = false, strictHost = false, accessManagement = null } = {}) {
+function fixture({ paired = false, hidden = false, phase = null, syncFailure = false, syncGate = null, storedTheme = null, systemDark = false, requestFailures = {}, empty = false, storedGuide = null, storageUnavailable = false, initialLoading = false, strictHost = false, accessManagement = null, downloadResponse = null } = {}) {
   const account = {
     platform: "douyin",
     name: "林间的慢镜头",
@@ -93,6 +93,11 @@ function fixture({ paired = false, hidden = false, phase = null, syncFailure = f
     },
   };
   const clipboard = [];
+  const downloads=[], blobs=new Map();
+  class PageURL extends URL {
+    static createObjectURL(blob){const url='blob:test-'+blobs.size;blobs.set(url,blob);return url;}
+    static revokeObjectURL(url){blobs.delete(url);}
+  }
   const hooks = new Map([["Panel", [initialLoading ? null : state]]]),
     calls = [];
   let current = "Panel",
@@ -138,6 +143,7 @@ function fixture({ paired = false, hidden = false, phase = null, syncFailure = f
   };
   vm.runInNewContext(code, {
     __PSW_VERSION__: packageVersion,
+    AbortController, Uint8Array,
     Date: class extends Date { static now() { return now; } },
     setTimeout(fn, delay) { const id = ++timerId; timers.set(id, { fn, at: now + delay }); return id; },
     clearTimeout(id) { timers.delete(id); },
@@ -167,13 +173,14 @@ function fixture({ paired = false, hidden = false, phase = null, syncFailure = f
         },
       },
     },
-    URL,
-    document: { baseURI: "http://localhost/", addEventListener: (name, fn) => listeners.set(name, fn), removeEventListener: (name) => listeners.delete(name) },
+    URL: PageURL,
+    document: { baseURI: "http://localhost/", addEventListener: (name, fn) => listeners.set(name, fn), removeEventListener: (name) => listeners.delete(name), body:{appendChild(){}}, createElement(){return {click(){downloads.push({filename:this.download,blob:blobs.get(this.href)});},remove(){}};} },
     requestAnimationFrame: (fn) => fn(),
     navigator: { clipboard: { writeText: async value => { clipboard.push(value); } } },
     fetch: async (path, options) => {
       const body = options?.body ? JSON.parse(options.body) : null;
-      calls.push({ path, body });
+      calls.push({ path, body, options });
+      if(downloadResponse && /\/browser\/download(?:\/safari)?$/.test(path))return downloadResponse();
       const failure = Object.entries(requestFailures).find(([endpoint]) => path.endsWith("/" + endpoint));
       if (failure) return { ok: false, json: async () => ({ error: failure[1] }) };
       if (syncGate && path.endsWith("/sync")) await syncGate;
@@ -214,6 +221,7 @@ function fixture({ paired = false, hidden = false, phase = null, syncFailure = f
   }
   return {
     calls,
+    downloads,
     clipboard,
     storage,
     listeners,
@@ -1397,7 +1405,7 @@ test("connection card distinguishes online, offline and unpaired and labels the 
   assert.match(text(card()), /已授权 · 离线/);
   app.state.browserConnection.paired = false;
   assert.match(text(card()), /尚未连接浏览器/);
-  assert(nodes(app.render()).some(n => n.type === "a" && text(n).includes("点击下载浏览器扩展")));
+  assert(nodes(app.render()).some(n => n.type === "a" && ["Chrome", "Edge", "Firefox"].every(browser=>text(n).includes(browser)) && !text(n).includes("Safari") && n.props.href.endsWith("/browser/download")));
 });
 
 test("late pairing confirmation reports offline honestly", async () => {
@@ -1406,6 +1414,34 @@ test("late pairing confirmation reports offline honestly", async () => {
  app.state.browserConnection={paired:true,online:false,label:"Chrome",completedPairId:"test-pair-id"};
  await app.poll();assert.match(text(app.render()),/授权成功，Chrome 暂时离线/);
  assert.doesNotMatch(text(app.render()),/已连接，可以开始同步/);
+});
+
+test('connector links fetch ZIP within the signed-in page before starting a local file download',async()=>{
+ for(const safari of [false,true]){
+  const payload=Buffer.from([80,75,3,4,1,2,3,4]);
+  const app=fixture({downloadResponse:()=>new Response(payload,{headers:{'Content-Type':'application/zip'}})});
+  button(app.render(),'浏览器连接').props.onClick();
+  const suffix='/browser/download'+(safari?'/safari':'');
+  const link=nodes(app.render()).find(n=>n.type==='a'&&n.props.href?.endsWith(suffix));
+  let prevented=false;
+  assert.equal(typeof link.props.onClick,'function','protected download must not navigate as a plain link');
+  await link.props.onClick({preventDefault(){prevented=true;}});
+  assert(prevented);
+  assert.equal(app.calls.find(c=>c.path.endsWith(suffix)).options.credentials,'same-origin');
+  assert.equal(app.downloads.length,1);
+  assert.equal(app.downloads[0].filename,safari?'account-dashboard-safari.zip':'personal-social-browser-connector.zip');
+  assert.deepEqual(Buffer.from(await app.downloads[0].blob.arrayBuffer()),payload);
+ }
+});
+test('connector download errors and HTML login pages are visible and never saved as ZIP files',async()=>{
+ for(const response of [()=>new Response('Unauthorized',{status:401}),()=>new Response('Not Found',{status:404}),()=>new Response('<html>Login</html>',{headers:{'Content-Type':'text/html'}}),()=>new Response(JSON.stringify({error:'Safari 安装包暂不可用，请更新工作台。'}),{status:503,headers:{'Content-Type':'application/json'}})]){
+  const app=fixture({downloadResponse:response});button(app.render(),'浏览器连接').props.onClick();
+  const link=nodes(app.render()).find(n=>n.type==='a'&&n.props.href?.endsWith('/browser/download/safari'));
+  assert.equal(typeof link.props.onClick,'function');
+  await link.props.onClick({preventDefault(){}});
+  assert.equal(app.downloads.length,0);
+  assert(nodes(app.render()).some(n=>n.props.role==='alert'&&text(n)),'download failure must be visible');
+ }
 });
 
 test("queued overview, detail and first-sync tasks expose cancel with lifecycle identity", async () => {

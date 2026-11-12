@@ -71,7 +71,7 @@ pnpm start
 
 以 Chrome / Edge 为例：
 
-1. 在看板点「连接浏览器」，再点「点击下载浏览器扩展」，下载并解压安装包。
+1. 在看板点「连接浏览器」，再点「下载 Chrome / Edge / Firefox 扩展」，下载并解压安装包。Safari 请使用独立的「下载 Safari 连接器（macOS）」按钮。
 2. 打开 `chrome://extensions` 或 `edge://extensions`，启用开发者模式，加载解压后的 `chromium` 文件夹。
 3. 回看板生成连接码，在浏览器工具栏的连接器中粘贴并授权。连接码 **2 分钟有效、仅能使用一次**。授权成功后，看板会弹出确认提示，连接卡片显示「已连接」。
 
@@ -106,20 +106,18 @@ Release 中的 `cross-platform-account-dashboard.tgz` 用于安装到 **DSH Desk
 | Chrome 120+ / 当前版 Edge | 加载本地 Chromium 连接器并配对 |
 | 其他 Chromium 浏览器 | 需支持 MV3、scripting、alarms 和本地扩展；未逐一实机认证 |
 | Firefox 115+ | 临时加载 `firefox/manifest.json`；浏览器重启后需重新加载 |
-| Safari 17+（macOS，本地试用） | 本机启用、配对及哔哩哔哩同步已验证；尚无正式签名安装版。见[Safari 试用说明](extension/README.md#safari-本地试用macos) |
+| Safari 17+（macOS） | 下载预构建应用，Intel / Apple 芯片通用；无需 Xcode。无开发者证书、未公证，需允许未签名扩展。见[安装说明](extension/SAFARI-INSTALL.txt) |
 | 移动浏览器 / 禁止本地扩展的受管浏览器 | 暂无采集适配器，仍可查看已有缓存 |
 
 一次只授权一个扩展连接，重新配对会替换旧授权。看板升级后需[更新浏览器连接器](extension/README.md#060-更新)。
 
-### Safari：开发测试与最终安装体验
+### Safari 安装
 
-Safari 有正式的 Web Extension 插件系统。最终面向用户的流程是：**安装我们提供的 Safari 连接器 → 在 Safari 启用并授权网站 → 与看板配对 → 在 Safari 登录平台并同步**。用户无需安装 Xcode；包含扩展的 Mac 应用只是 Apple 要求的插件载体。
+在看板「连接浏览器」中点击「下载 Safari 连接器（macOS）」，解压并将应用放入「应用程序」，打开后按包内 INSTALL.txt 启用扩展、允许网站并配对。用户不需要 Xcode、开发者会员或自行编译。
 
-目前尚未完成正式交付：已在 macOS 27.2 / Xcode 27.2 构建出本地测试应用，应用及内嵌扩展通过本地签名完整性检查；使用者已在本机验证 Safari 扩展启用、配对和哔哩哔哩登录后同步；小红书与哔哩哔哩未登录提示正常，抖音和 X 的未登录识别已在 0.8.1 修复并通过自动化回归，更新扩展后的 Safari 真实复测仍待完成。自动同步、重启恢复及其他平台的完整登录后采集仍待验证，尚无开发者签名、公证或商店安装版。普通用户安装体验不能用这份测试包代替验收。
+安装包采用 ad-hoc 签名，没有 Apple 开发者证书、未公证，macOS 可能阻止打开，不能保证所有电脑允许安装。Safari 需开启「允许未签名的扩展」，退出 Safari 后该选项会重置，需再次开启。此包不通过 App Store 分发。
 
-Xcode 仅用于开发者构建和排错。参与本机联调时，可从 [Mac App Store](https://apps.apple.com/app/xcode/id497799835) 安装兼容版本并由本人完成首次许可与必需组件；旧系统可从 [Apple 官方下载](https://developer.apple.com/download/all/?q=Xcode) 选择兼容版。已安装完成后由开发者继续，无需使用者创建项目或运行编译命令。
-
-构建、Safari 启用及各项验收步骤见 [Safari 安装与原生验收](extension/README.md#safari-本地试用macos)。本地测试包采用 ad-hoc 签名，无开发者证书、未公证；Safari 会将它视为未签名开发扩展。正式分发还需完成开发者签名及分发流程。0.8.1 的本地更新及验收边界见[更新记录](CHANGELOG.md)。
+更新时先退出 Safari，再替换原应用，保留账号和配对。不要在多个位置同时打开同一应用。构建由维护者负责，见[开发说明](extension/README.md#safari-本地试用macos)；测试与实际验收边界记录在 docs/validation，不作为用户安装步骤。
 
 ## 数据与读取边界
 

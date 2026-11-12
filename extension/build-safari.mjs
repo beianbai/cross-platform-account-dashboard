@@ -5,10 +5,11 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const usage = `Safari 本地试用构建（需要 macOS、Node.js 22+、完整 Xcode）
-  node build-safari.mjs [--extension <safari目录>] [--output <新输出目录>] [--project-only]
+  node build-safari.mjs [--extension <safari目录>] [--output <新输出目录>] [--project-only] [--release]
 
 默认生成 Xcode 项目并构建仅供本机测试的 ad-hoc 签名 Mac 应用，不安装、不修改 Safari 设置。
 --project-only  只生成项目，随后可在 Xcode 中打开并构建。
+--release       构建 Intel / Apple 芯片通用 Release 应用，供预构建下载包使用。
 输出目录必须不存在；不会覆盖旧构建或清除浏览器授权。
 `;
 
@@ -34,6 +35,7 @@ async function main() {
     const argument = process.argv[i];
     if (argument === '--help') { console.log(usage); return; }
     if (argument === '--project-only') { options.projectOnly = true; continue; }
+    if (argument === '--release') { options.release = true; continue; }
     if (!['--extension', '--output'].includes(argument) || !process.argv[i + 1] || process.argv[i + 1].startsWith('--')) throw Error(usage);
     options[argument.slice(2)] = resolve(process.argv[++i]);
   }
@@ -80,11 +82,13 @@ async function main() {
   console.log('Xcode 项目：', projects[0]);
   if (options.projectOnly) return;
   const derived = join(options.output, 'DerivedData');
-  run('/usr/bin/xcrun', ['xcodebuild', '-project', projects[0], '-scheme', appName, '-configuration', 'Debug',
+  const configuration=options.release?'Release':'Debug';
+  run('/usr/bin/xcrun', ['xcodebuild', '-project', projects[0], '-scheme', appName, '-configuration', configuration,
     '-derivedDataPath', derived, '-sdk', 'macosx', 'CODE_SIGN_STYLE=Manual', 'CODE_SIGN_IDENTITY=-',
     'DEVELOPMENT_TEAM=', 'CODE_SIGNING_ALLOWED=YES', 'MACOSX_DEPLOYMENT_TARGET=12.0',
-    `MARKETING_VERSION=${manifest.version}`, 'CURRENT_PROJECT_VERSION=1', 'build']);
-  const app = join(derived, 'Build', 'Products', 'Debug', appName + '.app');
+    `MARKETING_VERSION=${manifest.version}`, 'CURRENT_PROJECT_VERSION=1',
+    ...(options.release?['ARCHS=arm64 x86_64','ONLY_ACTIVE_ARCH=NO','GCC_GENERATE_DEBUGGING_SYMBOLS=NO','SWIFT_SERIALIZE_DEBUGGING_OPTIONS=NO','COPY_PHASE_STRIP=YES']:[]),'build']);
+  const app = join(derived, 'Build', 'Products', configuration, appName + '.app');
   await access(app);
   run('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--verbose=2', app]);
   console.log('已构建本地试用应用（ad-hoc 签名，无开发者证书、未公证）：', app);
