@@ -9,13 +9,19 @@ export const COLLECTION_MESSAGES={
   connection_offline:'浏览器连接不可用，请检查连接后重试。',
   account_mismatch:'当前账号与绑定账号不一致，已保留原有数据。'
 };
-export function collectionError(status){return Object.assign(Error(COLLECTION_MESSAGES[status]||COLLECTION_MESSAGES.parse_error),{status});}
+export const COLLECTION_REASONS={
+  page_access_denied:'浏览器连接器没有该网站的读取权限，请在浏览器扩展设置中允许该网站，再继续同步。',
+  page_script_error:'浏览器连接器执行页面检测失败，请重新加载连接器后重试。',
+  page_script_unavailable:'浏览器未返回页面检测结果，请检查扩展的网站权限并重新加载连接器。'
+};
+export function collectionError(status,reason){return Object.assign(Error(COLLECTION_REASONS[reason]||COLLECTION_MESSAGES[status]||COLLECTION_MESSAGES.parse_error),{status,...(COLLECTION_REASONS[reason]?{reason}:{})});}
 // Serialized into the visible page by either browser connector. Never inspect cookies or page stores.
 export function readPageGate(){
   const visible=e=>{
     if(!e||!e.getBoundingClientRect().width||!e.getBoundingClientRect().height)return false;
     for(let node=e;node;node=node.parentElement){
-      if(node.hidden||node.getAttribute?.('aria-hidden')==='true')return false;
+      // aria-hidden changes accessibility exposure, not whether the page paints the element.
+      if(node.hidden)return false;
       if(typeof getComputedStyle==='function'){
         const style=getComputedStyle(node);
         if(style.display==='none'||style.visibility==='hidden'||style.visibility==='collapse'||style.opacity==='0')return false;
@@ -34,6 +40,26 @@ export function readPageGate(){
   const methods=['扫码登录','验证码登录','密码登录'];
   const loginMethods=text=>methods.filter(method=>text.includes(method)).length>=2;
   if([...document.querySelectorAll('[role="dialog"],[aria-modal="true"]')].some(e=>visible(e)&&loginMethods(e.innerText||'')))return 'needs_login';
+  // Safari evidence on /user/self can span layout wrappers and use arbitrary label tags.
+  // Require the full signed-out form and absent profile data; a generic login CTA is insufficient.
+  if(host==='www.douyin.com'&&path==='/user/self'&&!any('[data-e2e="user-info-fans"],[data-e2e="user-post-list"]')){
+    // Safari's real login form itself uses ARTICLE. Only explicit works/comments
+    // identify content here; the self route, full form and absent profile remain required.
+    const content='[data-e2e="user-post-list"],[data-e2e*="comment"],[class*="comment"]';
+    const inputs=[...document.querySelectorAll('input[type="tel"],input[autocomplete="tel"],input[placeholder*="手机号"],input[placeholder*="验证码"]')].filter(e=>visible(e)&&!e.closest?.(content));
+    if(inputs.length>=2){
+      const text=(document.body?.innerText||'').replace(/\s+/g,'');
+      const methodChoices=e=>{
+        const label=(e.innerText||'').replace(/\s+/g,'');
+        // Several tabs can share one DOM element. Count their method names, not elements.
+        // Compact labels may contain only known methods and separators, never prose.
+        if(!label||label.length>64||label.replace(/扫码登录|验证码登录|密码登录/g,'').replace(/[|｜/／·•]/g,''))return [];
+        return methods.filter(method=>label.includes(method));
+      };
+      const choices=new Set([...document.querySelectorAll('*')].filter(e=>visible(e)&&!e.closest?.(content)).flatMap(methodChoices));
+      if(/登录后即可观看喜欢[、，,]?收藏的视频/.test(text)&&choices.size>=2)return 'needs_login';
+    }
+  }
   // Classless Douyin dialogs still need a common overlay; identical post text is not a gate.
   if(host==='www.douyin.com'&&typeof getComputedStyle==='function'){
     const labelSelector='button,[role="button"],[role="tab"],h1,h2,h3,[role="heading"],span,div';
@@ -45,17 +71,85 @@ export function readPageGate(){
       const text=panel.innerText||'';
       if(text.length>1500||panel.closest?.(content))break;
       const style=getComputedStyle(panel);
-      if(!visible(panel)||!(style.position==='fixed'||style.position==='absolute'&&Number(style.zIndex)>0))continue;
+      const positioned=style.position==='fixed'||style.position==='absolute'&&Number(style.zIndex)>0;
+      const loginForm=/登录后即可观看喜欢[、，,]?收藏的视频/.test(text.replace(/\s+/g,''))&&[...panel.querySelectorAll('input[type="tel"],input[autocomplete="tel"],input[placeholder*="手机号"],input[placeholder*="验证码"]')].some(visible);
+      if(!visible(panel)||!positioned&&!loginForm)continue;
       const choices=new Set([...panel.querySelectorAll(labelSelector)].filter(e=>visible(e)&&!e.closest?.(content)).map(e=>e.innerText?.trim()).filter(text=>methods.includes(text)));
       if(choices.size>=2)return 'needs_login';
     }
   }
-  const ownProfile=['a[data-testid="AppTabBar_Profile_Link"]','li.user a[href*="/user/profile/"]','.header-avatar-wrap a[href*="space.bilibili.com/"]'].some(any);
+  const ownProfile=[...document.querySelectorAll('a[data-testid="AppTabBar_Profile_Link"],li.user a[href*="/user/profile/"],.header-avatar-wrap a[href*="space.bilibili.com/"]')].some(e=>{
+    if(!visible(e))return false;
+    try{const u=new URL(e.href||e.getAttribute('href'),typeof location==='undefined'?undefined:location.href);
+      return u.protocol==='https:'&&!u.port&&!u.username&&!u.password&&(
+        ['x.com','twitter.com'].includes(u.hostname)&&/^\/[A-Za-z0-9_]{1,15}\/?$/.test(u.pathname)&&!['login','home','signup'].includes(u.pathname.replaceAll('/',''))||
+        u.hostname==='www.xiaohongshu.com'&&/^\/user\/profile\/[a-f0-9]{24}\/?$/i.test(u.pathname)||
+        u.hostname==='space.bilibili.com'&&/^\/[1-9][0-9]{0,19}\/?$/.test(u.pathname));
+    }catch{return false;}
+  });
+  if(isX&&!ownProfile){
+    const post='article,[role="article"],[data-testid="tweet"],[data-testid="tweetText"]';
+    for(const action of document.querySelectorAll('a[href],button,[role="button"]')){
+      if(!visible(action)||action.closest?.(post))continue;
+      const label=(action.innerText||'').replace(/\s+/g,'');
+      if(/^(?:登录|登入|LogIn|SignIn)$/i.test(label)){
+        try{const u=new URL(action.href||action.getAttribute('href'),location.href);
+          if(u.protocol==='https:'&&!u.port&&!u.username&&!u.password&&['x.com','twitter.com'].includes(u.hostname)&&['/login','/i/flow/login'].includes(u.pathname.replace(/\/$/,'')))return 'needs_login';
+        }catch{}
+      }
+      // X may keep a public profile open and show a guest-only "Continue to X" wall.
+      if(!/^(?:继续前往X|ContinuetoX)$/i.test(label))continue;
+      for(let panel=action.parentElement;panel&&panel!==document.body;panel=panel.parentElement){
+        const text=panel.innerText||'';if(text.length>1500||panel.closest?.(post))break;
+        if(visible(panel)&&/完整个人资料|full profile/i.test(text))return 'needs_login';
+      }
+    }
+  }
+  if(!ownProfile&&['www.xiaohongshu.com','www.bilibili.com','space.bilibili.com'].includes(host)&&[...document.querySelectorAll('.login-btn')].some(e=>visible(e)&&/^(?:登录|立即登录|登录\s*[\/／]\s*注册|登录注册|log in|sign in)$/i.test(e.innerText?.trim()||'')))return 'needs_login';
   if(!ownProfile&&['.header-login-entry','[data-e2e="top-login-button"]','[data-testid="loginButton"]','input[autocomplete="username"]'].some(any))return 'needs_login';
   if(any('[data-testid="error-detail"]')||/ERR_(?:INTERNET_DISCONNECTED|CONNECTION|NAME_NOT_RESOLVED)|无法访问此网站|This site can’t be reached/.test(document.body?.innerText||''))return 'network_error';
   return 'parse_error';
 }
+// Diagnostic output is limited to counts/flags. Input values, HTML, text and URLs never leave the page.
+export function readLoginDiagnostics(){
+  const nodes=[...document.querySelectorAll('*')].slice(0,10000);
+  const visible=e=>{
+    if(!e?.getBoundingClientRect().width||!e.getBoundingClientRect().height)return false;
+    for(let n=e;n;n=n.parentElement){const style=getComputedStyle(n);if(n.hidden||style.display==='none'||['hidden','collapse'].includes(style.visibility)||style.opacity==='0')return false;}
+    return true;
+  };
+  const methods=['扫码登录','验证码登录','密码登录'];
+  const text=(document.body?.innerText||'').slice(0,200000).replace(/\s+/g,'');
+  const exact=nodes.filter(n=>methods.includes(n.innerText?.trim()));
+  const normalized=nodes.filter(n=>methods.includes((n.innerText||'').replace(/\s+/g,'')));
+  const inputs=[...document.querySelectorAll('input[type="tel"],input[autocomplete="tel"],input[placeholder*="手机号"],input[placeholder*="验证码"]')];
+  const panels=new Set();let largeAncestors=0,positionedPanels=0;
+  for(const label of exact)for(let panel=label.parentElement;panel&&panel!==document.body;panel=panel.parentElement){
+    if(panels.has(panel))continue;panels.add(panel);
+    if((panel.innerText||'').length>1500){largeAncestors++;break;}
+    const style=getComputedStyle(panel);if(style.position==='fixed'||style.position==='absolute'&&Number(style.zIndex)>0)positionedPanels++;
+  }
+  return {titlePresent:/登录后即可观看喜欢[、，,]?收藏的视频/.test(text),methodTextCount:methods.filter(m=>text.includes(m)).length,
+    exactMethodLabels:exact.length,normalizedMethodLabels:normalized.length,visibleMethodLabels:exact.filter(visible).length,
+    zeroSizeMethodLabels:exact.filter(n=>!n.getBoundingClientRect().width||!n.getBoundingClientRect().height).length,
+    loginInputs:inputs.length,visibleLoginInputs:inputs.filter(visible).length,
+    iframes:nodes.filter(n=>n.tagName==='IFRAME').length,openShadowRoots:nodes.filter(n=>!!n.shadowRoot).length,
+    profileFansPresent:!!document.querySelector('[data-e2e="user-info-fans"]'),postListPresent:!!document.querySelector('[data-e2e="user-post-list"]'),
+    largeAncestors,positionedPanels};
+}
+export function normalizeLoginDiagnostics(value){
+  if(value?.version!==1||!Array.isArray(value.frames)||!value.frames.length||value.frames.length>8)return;
+  const flags=['titlePresent','profileFansPresent','postListPresent'];
+  const counts=['methodTextCount','exactMethodLabels','normalizedMethodLabels','visibleMethodLabels','zeroSizeMethodLabels','loginInputs','visibleLoginInputs','iframes','openShadowRoots','largeAncestors','positionedPanels'];
+  const frames=[];
+  for(const frame of value.frames){
+    if(!frame||flags.some(k=>typeof frame[k]!=='boolean')||counts.some(k=>!Number.isSafeInteger(frame[k])||frame[k]<0||frame[k]>10000))return;
+    frames.push(Object.fromEntries([...flags,...counts].map(k=>[k,frame[k]])));
+  }
+  return {version:1,frames};
+}
 export async function classifyCollectionError(error,page){
+  if(error?.status==='cancelled')return 'cancelled';
   if(COLLECTION_MESSAGES[error?.status]&&error.status!=='parse_error'&&error.status!=='network_error')return error.status;
   if(error?.executionStopped||/ownership|user.{0,30}control|inactive|not.active|unassigned|take.?over|taken.over|stopped.by.user/i.test(String(error?.code||'')+' '+String(error?.message||'')))return 'needs_attention';
   if(page){try{const gate=await page.evaluate(readPageGate);if(gate&&gate!=='parse_error')return gate;}catch{}}
@@ -64,7 +158,7 @@ export async function classifyCollectionError(error,page){
   return 'parse_error';
 }
 export async function collect(options){
-  try{const started=Date.now(),raw=await collectVisible(options);return options.collection?await traverseWorks({...options,readGate:()=>options.page.evaluate(readPageGate),collection:{...options.collection,budgetMs:Math.max(1,Math.min(90000,options.collection.budgetMs??90000)-(Date.now()-started))}},raw):raw;}catch(error){throw collectionError(await classifyCollectionError(error,options.page));}
+  try{const started=Date.now(),raw=await collectVisible(options);return options.collection?await traverseWorks({...options,readGate:()=>options.page.evaluate(readPageGate),collection:{...options.collection,budgetMs:Math.max(1,Math.min(90000,options.collection.budgetMs??90000)-(Date.now()-started))}},raw):raw;}catch(error){if(error?.status==='cancelled')throw error;const status=await classifyCollectionError(error,options.page);throw collectionError(status,status===error.status?error.reason:undefined);}
 }
 async function collectVisible({task,page,platform,url=''}) {
   const checkGate=async()=>{const gate=await page.evaluate(readPageGate);if(gate&&gate!=='parse_error')throw collectionError(gate);};
@@ -199,6 +293,7 @@ async function collectVisible({task,page,platform,url=''}) {
         works.push(...section.works);coverage[type].loaded=section.works.length;
         coverage[type].status=section.works.length?'partial':'unavailable';
       }catch(error){
+        if(error?.status==='cancelled')throw error;
         const reason=await classifyCollectionError(error,page);
         if(['needs_login','needs_attention','account_mismatch'].includes(reason))throw collectionError(reason);
         coverage[type].reason=reason;

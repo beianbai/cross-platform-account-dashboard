@@ -12,7 +12,7 @@ test('Bilibili permits observed upload redirects and bounded content routes only
 });
 test('Bilibili navigation accepts a ready DOM while late resources remain loading',async()=>{
  let time=0;const updates=[];
- const api={tabs:{update:async(id,change)=>updates.push(change),get:async()=>({url:'https://space.bilibili.com/123/upload/video',status:'loading'})},scripting:{executeScript:async({func})=>[{result:vm.runInNewContext('('+func.toString()+')()',{document:{readyState:'interactive',body:{innerText:'投稿'}},location:new URL('https://space.bilibili.com/123/upload/video')})}]}};
+ const api={tabs:{update:async(id,change)=>updates.push(change),get:async()=>({url:'https://space.bilibili.com/123/upload/video',status:'loading'})},scripting:{executeScript:async({func})=>[{result:vm.runInNewContext('('+func.toString()+')()',{document:{readyState:'interactive',body:{innerText:'投稿'},querySelectorAll:()=>[]},location:new URL('https://space.bilibili.com/123/upload/video')})}]}};
  const page=createPageAdapter(api,1,'bilibili',{automatic:true,now:()=>time,sleep:async ms=>time+=ms});
  await page.goto('https://space.bilibili.com/123/upload');assert(time<12000);assert.equal(updates[0].active,false);
 });
@@ -50,6 +50,6 @@ test('Bilibili partial category failure preserves successful categories with a p
 });
 
 test('navigation does not mistake the previous allowed document for the destination',async()=>{
- let time=0,reads=0;const api={tabs:{update:async()=>{},get:async()=>({url:++reads<3?'https://www.bilibili.com/':'https://space.bilibili.com/123/upload/video',status:'complete'})}};
+ let time=0,reads=0;const api={tabs:{update:async()=>{},get:async()=>({url:++reads<3?'https://www.bilibili.com/':'https://space.bilibili.com/123/upload/video',status:'complete'})},scripting:{executeScript:async()=>[{result:'parse_error'}]}};
  const page=createPageAdapter(api,1,'bilibili',{now:()=>time,sleep:async ms=>time+=ms});await page.goto('https://space.bilibili.com/123/upload');assert(reads>=3);
 });
