@@ -1462,6 +1462,7 @@ window.__ModuleLoader__.load({
         [days, setDays] = React.useState(30),
         [notice, setNoticeState] = React.useState(null),
         [localSync, setLocalSync] = React.useState({}),
+        [cancelling, setCancelling] = React.useState({}),
         [highlighted, setHighlighted] = React.useState({}),
         [workKind, setWorkKind] = React.useState("全部"),
         [workPage, setWorkPage] = React.useState(1),
@@ -1558,6 +1559,8 @@ window.__ModuleLoader__.load({
               } else if (unconfirmedHistory(outcome, s.accounts[id])) {
                 setNotice(`${s.platforms?.find(p => p.id === id)?.label || id}${historyExplanation(s.accounts[id])}`, "warning");
                 delete manualJobs.current[id];
+              } else if (outcome.phase === "cancelled") {
+                delete manualJobs.current[id];
               } else if (outcome.phase === "paused") {
                 const reason = s.accounts[id]?.workSync?.reason;
                 setNotice(`${s.platforms?.find(p => p.id === id)?.label || id}已暂停 · 已保存进度 · ${reason === "legacy_connector" ? "请更新浏览器连接器后继续" : reason === "needs_login" ? "请先在浏览器登录" : reason === "needs_attention" ? "请先在浏览器完成验证" : s.accounts[id]?.workSync?.mode === "refresh" ? "可重新同步" : s.accounts[id]?.workSync?.mode === "incremental" ? "可继续增量同步" : "可继续补齐历史"}`, "warning");
@@ -1642,7 +1645,21 @@ window.__ModuleLoader__.load({
         if (!result) { delete manualJobs.current[id]; setLocalSync(old => { const next = { ...old }; delete next[id]; return next; }); }
         return result;
       };
-      const phaseLabel = (s, account) => unconfirmedHistory(s, account) ? "已更新 · 历史待确认" : ({ queued: "排队中", waiting: "等待浏览器", opening: "等待浏览器", connecting: "等待浏览器", reading: "正在读取", collecting: "正在读取", needs_login: "需要登录", needs_attention: "等待处理", complete: "同步完成", paused: "已暂停 · 可继续" }[s?.phase] || (s?.running ? "正在同步" : ""));
+      const cancelSync = async id => {
+        if (cancelling[id]) return;
+        setCancelling(old => ({ ...old, [id]: true }));
+        try {
+          await api("sync/cancel", { platform: id, ...(status(id)?.jobId ? { jobId: status(id).jobId } : {}) });
+          delete manualJobs.current[id];
+          setLocalSync(old => { const next = { ...old }; delete next[id]; return next; });
+          setPlatformErrors(old => { const next = { ...old }; delete next[id]; return next; });
+          await load();
+          setNotice("已取消同步，已保存的数据和进度保留。");
+        } catch (e) { setNotice("取消同步未完成：" + e.message, "error"); }
+        finally { setCancelling(old => { const next = { ...old }; delete next[id]; return next; }); }
+      };
+      const cancelButton = id => btn(cancelling[id] ? "正在取消…" : "取消同步", () => cancelSync(id), "close", "psw-quiet", !!cancelling[id] || (pending && !status(id)?.running));
+      const phaseLabel = (s, account) => unconfirmedHistory(s, account) ? "已更新 · 历史待确认" : ({ cancelled: "已取消", queued: "排队中", waiting: "等待浏览器", opening: "等待浏览器", connecting: "等待浏览器", reading: "正在读取", collecting: "正在读取", needs_login: "需要登录", needs_attention: "等待处理", complete: "同步完成", paused: "已暂停 · 可继续" }[s?.phase] || (s?.running ? "正在同步" : ""));
       const issueIdentity = s => JSON.stringify([s?.jobId, s?.completedAt, s?.phase, s?.error, s?.lastResult]);
       const btn = (text, onClick, icon, cls = "", disabled = false) =>
         h(
@@ -1758,7 +1775,7 @@ window.__ModuleLoader__.load({
         : "首次记录已保存，点击账号卡片查看详情。自动同步可稍后设置，仅在工作台运行且电脑唤醒时执行。";
       const guideAction = guideActive === 0 ? btn("连接浏览器", () => setModal("connection"), "browser", "psw-primary")
         : guideActive === 1 ? btn("添加一个平台", openAdd, "plus", "psw-primary")
-        : guideActive === 2 ? btn(guideRunning ? "等待同步结果" : guideNeedsLogin ? "前往浏览器处理" : "继续首次同步", continueGuideSync, "refresh", "psw-primary", !!guideRunning || pending)
+        : guideActive === 2 ? guideRunning ? cancelButton(guideChosen) : btn(guideNeedsLogin ? "前往浏览器处理" : "继续首次同步", continueGuideSync, "refresh", "psw-primary", pending)
         : btn(guideScheduled ? "查看同步计划" : "设置自动同步", goSettings, "clock", "psw-primary");
       function issue({ p, s }) {
         const login = s.phase === "needs_login",
@@ -1822,6 +1839,12 @@ window.__ModuleLoader__.load({
         `版本：${appVersion}`,
         `运行方式：${runtimeMode}`,
         `浏览器扩展：${connection?.online ? "ready" : "offline"}`,
+        ...(() => {
+          const d = status("douyin")?.loginDiagnostics || ps("douyin").lastLoginDiagnostics;
+          if (d?.version !== 1 || !Array.isArray(d.frames)) return [];
+          const keys = ["titlePresent", "profileFansPresent", "postListPresent", "methodTextCount", "exactMethodLabels", "normalizedMethodLabels", "visibleMethodLabels", "zeroSizeMethodLabels", "loginInputs", "visibleLoginInputs", "iframes", "openShadowRoots", "largeAncestors", "positionedPanels"];
+          return d.frames.slice(0, 8).map((frame, i) => `抖音登录检测 ${i + 1}：` + JSON.stringify(Object.fromEntries(keys.filter(k => typeof frame?.[k] === "boolean" || Number.isSafeInteger(frame?.[k]) && frame[k] >= 0 && frame[k] <= 10000).map(k => [k, frame[k]]))));
+        })(),
       ].join("\n");
       const notification = notice && h("div", { className: "psw-toast-anchor" },
         h("div", { className: "psw-toast-layer" }, h(SuccessNotice, { key: notice.id, message: notice.message, tone: notice.tone, onClose: () => setNotice("") })));
@@ -1923,7 +1946,7 @@ window.__ModuleLoader__.load({
               "div",
               { className: "psw-actions" },
               btn("查看详情", () => goDetail(p.id), "arrow", "psw-quiet"),
-              h(
+              s?.running || s?.phase === "queued" ? cancelButton(p.id) : h(
                 "button",
                 {
                   type: "button",
@@ -2145,7 +2168,7 @@ window.__ModuleLoader__.load({
                               h("p", { className: "psw-bio" }, account.bio),
                           ),
                         ),
-                        !archived &&
+                        !archived && h("div", { className: "psw-actions" },
                           h("button", {
                             type: "button",
                             className: "psw-primary",
@@ -2155,7 +2178,7 @@ window.__ModuleLoader__.load({
                           },
                             h(Icon, { name: "refresh", className: selectedBusy ? "psw-spin" : undefined }),
                             selectedBusy ? phaseLabel(selectedSync) : "同步账号",
-                          ),
+                          ), selectedBusy && cancelButton(selected)),
                       ),
                       issues.filter((i) => i.p.id === selected).map(issue),
                       h(
@@ -2243,7 +2266,7 @@ window.__ModuleLoader__.load({
                           h("p", null, account.workSync?.reason === "legacy_connector" || selectedSync?.reason === "legacy_connector" ? "请更新浏览器连接器后继续；已保存的作品仍保留，历史尚未补齐。" : selectedSync?.phase === "needs_login" || account.workSync?.reason === "needs_login" ? "请先在原浏览器登录，完成后继续；已保存的进度仍保留。" : selectedSync?.phase === "needs_attention" || account.workSync?.reason === "needs_attention" ? "请先在原浏览器完成验证或页面处理，再继续；已保存的进度仍保留。" : selectedBusy ? `${phaseLabel(selectedSync)} · 已保存 ${selectedSync?.progress?.saved ?? account.works?.length ?? 0} 条 · 已读取 ${selectedSync?.progress?.batches ?? 0} 批` : selectedSync?.error ? `同步未完成：${selectedSync.error} 已保存的作品和进度仍保留。` : unconfirmedHistory(selectedSync, account) ? historyExplanation(account) : account.workSync?.status === "paused" || selectedSync?.phase === "paused" ? account.workSync?.mode === "refresh" ? "本次同步已暂停，已保存的数据保留，可重新同步。" : account.workSync?.mode === "incremental" ? "已保存进度，等待继续增量同步。" : "已保存进度，等待继续补齐历史。" : account.workSync?.mode === "refresh" && account.workSync?.status === "incremental" ? "本次同步完成，账号指标和当前已加载作品已保存。补齐更早的作品请使用下方历史操作。" : account.workSync?.status === "incremental" ? "此次增量扫描已完成。" : account.workSync?.status === "complete" && account.workSync?.historyComplete ? "历史已读到末尾。" : "可继续补齐历史，或先更新近期作品。"),
                           h("div", { className: "psw-actions", style: { flexWrap: "wrap" } },
                             selectedBusy
-                              ? btn("暂停", () => action("sync/pause", { platform: selected }), null, "", pending)
+                              ? null
                               : h(React.Fragment, null,
                                   btn("增量同步", () => sync(selected, account.workSync?.mode === "incremental" && (account.workSync?.status === "paused" || selectedSync?.phase === "paused"), "sync", { mode: "incremental" }), "refresh", "", pending),
                                   btn(account.workSync?.historyCheckpoint || (account.workSync?.status === "paused" && account.workSync?.mode === "history") ? "继续补齐" : "补齐历史", () => sync(selected, true, "sync", { mode: "history" }), null, "", pending),
@@ -2373,7 +2396,7 @@ window.__ModuleLoader__.load({
                               }),
                               p.label + " · " + (phaseLabel(localSync[p.id] || status(p.id)) || "等待同步"),
                             ),
-                            h("small", null, "首次成功后将添加到总览"),
+                            h("div", { className: "psw-actions" }, h("small", null, "首次成功后将添加到总览"), cancelButton(p.id)),
                           ),
                         ),
                       !online &&

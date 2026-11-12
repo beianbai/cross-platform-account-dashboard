@@ -27,7 +27,7 @@ test('background acknowledges invalid task and failed tab creation instead of le
  for(const platform of ['unknown','douyin']){
   let listener,complete;const result=new Promise(resolve=>{complete=resolve;});const state={connection:{base:'http://127.0.0.1:54321',token:'a'.repeat(64)}};
   const api={runtime:{id:'fixture',onMessage:{addListener:fn=>{listener=fn;}},onStartup:{addListener(){}},onInstalled:{addListener(){}}},alarms:{onAlarm:{addListener(){}}},storage:{local:{get:async()=>state,set:async value=>Object.assign(state,value)}},tabs:{create:async()=>{throw Error('browser permission denied');}}};
-  vm.runInNewContext(bundle,{chrome:api,URL,AbortController,setTimeout,clearTimeout,fetch:async(url,options)=>{if(url.endsWith('/result')){complete(JSON.parse(options.body));return {ok:true,json:async()=>({ok:true})};}return {ok:true,json:async()=>({job:{id:'b'.repeat(64),platform,url:''}})};}});
+  vm.runInNewContext(bundle,{chrome:api,URL,AbortController,setTimeout,clearTimeout,fetch:async(url,options)=>{if(url.endsWith('/job'))return {ok:true,json:async()=>({active:true})};if(url.endsWith('/result')){complete(JSON.parse(options.body));return {ok:true,json:async()=>({ok:true})};}return {ok:true,json:async()=>({job:{id:'b'.repeat(64),platform,url:''}})};}});
   listener({type:'poll'},{id:'fixture'},()=>{});const response=await result;assert.equal(response.id,'b'.repeat(64));assert.equal(response.status,platform==='unknown'?'error':'connection_offline');
  }
 });
@@ -43,7 +43,7 @@ test('X routes reject impostor domains and system paths while allowing a persona
 });
 test('automatic navigation never activates a browser tab and incomplete loading is network_error',async()=>{
  let time=0;const changes=[];
- const api={tabs:{update:async(id,options)=>{changes.push(options);},get:async()=>({url:'https://www.douyin.com/user/self',status:'loading'})}};
+ const api={tabs:{update:async(id,options)=>{changes.push(options);},get:async()=>({url:'https://www.douyin.com/user/self',status:'loading'})},scripting:{executeScript:async({func})=>[{result:func.name==='readPageGate'?'parse_error':false}]}};
  const page=createPageAdapter(api,42,'douyin',{automatic:true,now:()=>time,sleep:async ms=>{time+=ms;}});
  await assert.rejects(page.goto('https://www.douyin.com/user/self'),e=>e.status==='network_error');
  assert.equal(changes.length,1);assert.equal(changes[0].active,false);
@@ -94,13 +94,13 @@ async function sourceBundle(){
  const parts=await Promise.all(['../src/platforms.mjs','../src/work-traversal.mjs','../src/collector.mjs','../extension/adapter.mjs','../extension/background.mjs'].map(path=>readFile(new URL(path,import.meta.url),'utf8')));
  return '(()=>{'+parts.map(s=>s.replace(/^import .*;\n/gm,'').replace(/^export /gm,'')).join('\n')+'})();';
 }
-async function runExtensionJob(job,{pending=false,retryable=false,active=false,failNavigation=false}={}){
+async function runExtensionJob(job,{pending=false,retryable=false,active=false,failNavigation=false,scriptError=null}={}){
  const calls=[];let listener,complete,finish,activityAtSubmission;const response=new Promise(resolve=>{complete=resolve;});const ended=new Promise(resolve=>{finish=resolve;});
  const state={connection:{base:'http://127.0.0.1:54321',token:'a'.repeat(64)},tabsByPlatform:pending?{douyin:retryable?{id:42,retryable:true}:42}:{}};let url='https://www.douyin.com/user/self';
  const root={innerText:'粉丝 3 关注 4 获赞 8 抖音号：fixture-123',querySelector:()=>({innerText:'模拟浏览器账号'}),parentElement:{querySelector:()=>({src:''})}};
  const document={body:{innerText:''},querySelector:selector=>selector==='[data-e2e="user-info"]'?root:selector==='[data-e2e="user-info-fans"]'?{innerText:'粉丝 3'}:selector==='[data-e2e="user-post-list"]'?{}:null,querySelectorAll:selector=>selector==='[role="tab"]'?[{innerText:'作品 0'}]:[]};
- const api={runtime:{id:'fixture',onMessage:{addListener:fn=>{listener=fn;}},onStartup:{addListener(){}},onInstalled:{addListener(){}}},alarms:{onAlarm:{addListener(){}}},storage:{local:{get:async()=>state,set:async value=>{Object.assign(state,value);if(['submitted','success','error','attention'].includes(value.activity?.phase))finish();}}},tabs:{create:async options=>{calls.push(['create',options]);url=options.url;return {id:42};},get:async()=>({id:42,url,status:'complete',active}),update:async(id,options)=>{calls.push(['update',options]);if(failNavigation)throw Object.assign(Error('navigation failed'),{status:'network_error'});url=options.url;},remove:async id=>{calls.push(['remove',id]);}},scripting:{executeScript:async options=>[{result:vm.runInNewContext('('+options.func.toString()+')()',{document,location:new URL(url)})}]}};
- vm.runInNewContext(await sourceBundle(),{chrome:api,URL,AbortController,setTimeout,clearTimeout,fetch:async(url,options)=>{if(url.endsWith('/result')){activityAtSubmission=state.activity?.phase;complete(JSON.parse(options.body));return {ok:true,json:async()=>({ok:true})};}return {ok:true,json:async()=>({job})};}});
+ const api={runtime:{id:'fixture',onMessage:{addListener:fn=>{listener=fn;}},onStartup:{addListener(){}},onInstalled:{addListener(){}}},alarms:{onAlarm:{addListener(){}}},storage:{local:{get:async()=>state,set:async value=>{Object.assign(state,value);if(['submitted','success','error','attention'].includes(value.activity?.phase))finish();}}},tabs:{create:async options=>{calls.push(['create',options]);url=options.url;return {id:42};},get:async()=>({id:42,url,status:'complete',active}),update:async(id,options)=>{calls.push(['update',options]);if(failNavigation)throw Object.assign(Error('navigation failed'),{status:'network_error'});url=options.url;},remove:async id=>{calls.push(['remove',id]);}},scripting:{executeScript:async options=>{if(scriptError)throw scriptError;return [{result:vm.runInNewContext('('+options.func.toString()+')()',{document,location:new URL(url),URL})}];}}};
+ vm.runInNewContext(await sourceBundle(),{chrome:api,URL,AbortController,setTimeout,clearTimeout,fetch:async(url,options)=>{if(url.endsWith('/job'))return {ok:true,json:async()=>({active:true})};if(url.endsWith('/result')){activityAtSubmission=state.activity?.phase;complete(JSON.parse(options.body));return {ok:true,json:async()=>({ok:true})};}return {ok:true,json:async()=>({job})};}});
  listener({type:'poll'},{id:'fixture'},()=>{});const result=await response;await ended;return {result,calls,state,activityAtSubmission};
 }
 test('automatic extension jobs use an inactive dedicated tab, then close only that tab on success',async()=>{
@@ -146,7 +146,7 @@ test('protocol 2 connector streams ordered batches, retries acknowledgement loss
  const api={runtime:{id:'fixture',onMessage:{addListener:f=>listener=f},onStartup:{addListener(){}},onInstalled:{addListener(){}}},alarms:{onAlarm:{addListener(){}}},storage:{local:{get:async()=>state,set:async v=>Object.assign(state,v)}},tabs:{create:async()=>({id:1}),remove:async()=>{}}};
  vm.runInNewContext(bundle,{chrome:api,URL,AbortController,setTimeout,clearTimeout,
   fixtureCollect:async({onBatch,collection})=>{assert.equal(collection.mode,'history');for(let i=0;i<3;i++){const ack=await onBatch({works:Array.from({length:100},(_,n)=>({url:`https://www.douyin.com/video/${i*100+n}`}))});assert.equal(ack.known,false);}return {works:[]};},
-  fetch:async(url,options)=>{const body=JSON.parse(options.body);if(url.endsWith('/poll'))return {ok:true,json:async()=>({job:{id:'b'.repeat(64),platform:'douyin',url:'',protocol:2,collection:{mode:'history'}}})};if(url.endsWith('/batch')){sequences.push(body.sequence);if(first){first=false;throw Error('ack lost');}return {ok:true,json:async()=>({ok:true,known:false})};}if(url.endsWith('/result')){done(body);return {ok:true,json:async()=>({ok:true})};}throw Error(url);}
+  fetch:async(url,options)=>{const body=JSON.parse(options.body);if(url.endsWith('/poll'))return {ok:true,json:async()=>({job:{id:'b'.repeat(64),platform:'douyin',url:'',protocol:2,collection:{mode:'history'}}})};if(url.endsWith('/job'))return {ok:true,json:async()=>({active:true})};if(url.endsWith('/batch')){sequences.push(body.sequence);if(first){first=false;throw Error('ack lost');}return {ok:true,json:async()=>({ok:true,known:false})};}if(url.endsWith('/job'))return {ok:true,json:async()=>({active:true})};if(url.endsWith('/result')){done(body);return {ok:true,json:async()=>({ok:true})};}throw Error(url);}
  });
  listener({type:'poll'},{id:'fixture'},()=>{});const result=await ended;
  assert.deepEqual(sequences,[0,0,1,2]);assert.equal(result.status,'ok');assert.equal(result.raw,undefined);
@@ -155,4 +155,44 @@ test('protocol 2 connector streams ordered batches, retries acknowledgement loss
 test('connector accepts explicit daily refresh mode and rejects unknown modes',()=>{
  const job={id:'a'.repeat(64),platform:'x',url:'https://x.com/demo',protocol:2,collection:{mode:'refresh'}};
  assert.equal(validJob(job),true);assert.equal(validJob({...job,collection:{mode:'unknown'}}),false);
+});
+
+
+test('background forwards safe permission reason and retains the recovery tab',async()=>{
+ const {result,calls,state}=await runExtensionJob({id:'b'.repeat(64),platform:'douyin',url:''},{scriptError:Error('Missing host permission for secret fixture URL')});
+ assert.equal(result.status,'needs_attention');assert.equal(result.reason,'page_access_denied');assert(!JSON.stringify(result).includes('secret'));assert(!calls.some(([method])=>method==='remove'));
+ assert.match(state.lastResult.message,/网站.*权限/);
+});
+
+test('adapter cancellation stops subsequent page scripts and navigation',async()=>{
+ let active=true,scripts=0,updates=0;
+ const api={tabs:{get:async()=>({url:'https://www.douyin.com/user/self',status:'complete'}),update:async()=>updates++},scripting:{executeScript:async()=>{scripts++;return [{result:scripts===1?'parse_error':false}];}}};
+ const page=createPageAdapter(api,42,'douyin',{checkActive:async()=>{if(!active)throw Object.assign(Error('cancelled'),{status:'cancelled'});},sleep:async()=>{active=false;}});
+ await assert.rejects(page.waitForFunction(()=>false),e=>e.status==='cancelled');
+ const count=scripts;await assert.rejects(page.evaluate(()=>1),e=>e.status==='cancelled');
+ await assert.rejects(page.goto('https://www.douyin.com/user/self'),e=>e.status==='cancelled');
+ assert.equal(scripts,count);assert.equal(updates,0);
+ await assert.rejects(collect({page,platform:'douyin'}),e=>e.status==='cancelled');
+});
+
+test('background cancellation stops an in-flight collector without submitting a result or later scripts',async()=>{
+ const bundle=(await sourceBundle()).replace('const raw=await collect({page,platform:job.platform','const raw=await fixtureCollect({page,platform:job.platform');
+ let listener,finish,clock=1000,active=true,scripts=0,requests=[];
+ const ended=new Promise(r=>finish=r),state={connection:{base:'http://127.0.0.1:54321',token:'a'.repeat(64)}};
+ const api={runtime:{id:'fixture',onMessage:{addListener:f=>listener=f},onStartup:{addListener(){}},onInstalled:{addListener(){}}},alarms:{onAlarm:{addListener(){}}},storage:{local:{get:async()=>state,set:async v=>{Object.assign(state,v);if(v.activity?.phase==='cancelled')finish();}}},tabs:{create:async()=>({id:42}),get:async()=>({url:'https://www.douyin.com/user/self',status:'complete'})},scripting:{executeScript:async()=>{scripts++;return [{result:1}];}}};
+ vm.runInNewContext(bundle,{chrome:api,URL,AbortController,setTimeout,clearTimeout,Date:class extends Date{static now(){return clock;}},
+ fixtureCollect:async({page})=>{await page.evaluate(()=>1);assert.equal(scripts,1);active=false;clock+=600;await page.evaluate(()=>2);throw Error('collector should have stopped');},
+ fetch:async(url,options)=>{requests.push(url);return {ok:true,json:async()=>url.endsWith('/job')?{active}:{job:{id:'b'.repeat(64),platform:'douyin',url:''}}};}});
+ listener({type:'poll'},{id:'fixture'},()=>{});await ended;
+ assert.equal(scripts,1);assert(!requests.some(url=>url.endsWith('/result')||url.endsWith('/batch')));
+ assert.equal(state.tabsByPlatform.douyin.retryable,true);assert.equal(state.activity.phase,'cancelled');
+});
+
+test('late result rejection keeps the dedicated tab retryable after cancellation',async()=>{
+ const bundle=(await sourceBundle()).replace('const raw=await collect({page,platform:job.platform','const raw=await fixtureCollect({page,platform:job.platform');
+ let listener,finish;const ended=new Promise(r=>finish=r),state={connection:{base:'http://127.0.0.1:54321',token:'a'.repeat(64)}};
+ const api={runtime:{id:'fixture',onMessage:{addListener:f=>listener=f},onStartup:{addListener(){}},onInstalled:{addListener(){}}},alarms:{onAlarm:{addListener(){}}},storage:{local:{get:async()=>state,set:async v=>{Object.assign(state,v);if(v.activity?.phase==='cancelled')finish();}}},tabs:{create:async()=>({id:42})}};
+ vm.runInNewContext(bundle,{chrome:api,URL,AbortController,setTimeout,clearTimeout,fixtureCollect:async()=>({works:[]}),fetch:async(url)=>url.endsWith('/result')?{ok:false,status:409,json:async()=>({error:'任务已结束'})}:{ok:true,json:async()=>url.endsWith('/job')?{active:true}:{job:{id:'b'.repeat(64),platform:'douyin',url:''}}}});
+ listener({type:'poll'},{id:'fixture'},()=>{});await ended;
+ assert.equal(state.activity.phase,'cancelled');assert.equal(state.tabsByPlatform.douyin.id,42);assert.equal(state.tabsByPlatform.douyin.retryable,true);
 });

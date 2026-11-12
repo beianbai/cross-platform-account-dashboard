@@ -1,4 +1,4 @@
-import {collect,classifyCollectionError,collectionError,COLLECTION_MESSAGES} from '../src/collector.mjs';
+import {collect,classifyCollectionError,collectionError,COLLECTION_MESSAGES,COLLECTION_REASONS} from '../src/collector.mjs';
 import {isPlatformURL,validJob,createPageAdapter} from './adapter.mjs';
 const api=globalThis.browser||globalThis.chrome;
 let working=false;
@@ -6,7 +6,7 @@ function parseCode(value){const u=new URL(value.trim());if(u.protocol!=='dsh-soc
 async function request(connection,path,body){
   if(!/^http:\/\/127\.0\.0\.1:[0-9]{1,5}$/.test(connection?.base)||!(/^[a-f0-9]{64}$/).test(connection?.token||''))throw Error('请先连接本机工作台');
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),12000);
-  try{const response=await fetch(connection.base+path,{method:'POST',headers:{'Authorization':'Bearer '+connection.token,'Content-Type':'application/json'},body:JSON.stringify(body),credentials:'omit',cache:'no-store',signal:controller.signal});const result=await response.json();if(!response.ok)throw Error(result.error||'连接已失效');return result;}finally{clearTimeout(timer);}
+  try{const response=await fetch(connection.base+path,{method:'POST',headers:{'Authorization':'Bearer '+connection.token,'Content-Type':'application/json'},body:JSON.stringify(body),credentials:'omit',cache:'no-store',signal:controller.signal});const result=await response.json();if(!response.ok)throw Object.assign(Error(result.error||'连接已失效'),{httpStatus:response.status,...(response.status===409?{status:'cancelled'}:{})});return result;}finally{clearTimeout(timer);}
 }
 async function report(status,phase='idle',platform){
   const activity={phase,message:status,updatedAt:new Date().toISOString(),...(platform?{platform}:{})};
@@ -19,8 +19,22 @@ async function pump(){
     await report('正在检查工作台任务…','checking');
     const {job}=await request(connection,'/poll',{});if(!job){await report('已连接，暂无待处理任务。');return;}
     if(!validJob(job)){if(/^[a-f0-9]{64}$/.test(job?.id||''))await request(connection,'/result',{id:job.id,status:'error'});throw Error('工作台任务格式不受支持');}
-    let page,result,tabId,preserveTab=false;
+    let page,result,tabId,preserveTab=false,lastCheck=0,stopped=false;
+    const reportCancelled=async()=>{
+      if(tabId){tabsByPlatform[job.platform]={id:tabId,retryable:true};await api.storage.local.set({tabsByPlatform});}
+      await report('同步已取消或结束，已保存的数据保留。','cancelled',job.platform);
+    };
+    const checkActive=async()=>{
+      if(stopped)throw Object.assign(Error('本次同步已取消'),{status:'cancelled'});
+      if(Date.now()-lastCheck<500)return;
+      let current;try{current=await request(connection,'/job',{id:job.id});}
+      catch(error){throw Object.assign(error,{status:'connection_offline'});}
+      if(typeof current.active!=='boolean')throw Object.assign(Error('任务状态不可用'),{status:'connection_offline'});
+      if(current.active===false){stopped=true;throw Object.assign(Error('本次同步已取消'),{status:'cancelled'});}
+      lastCheck=Date.now();
+    };
     try{
+      await checkActive();
       const saved=tabsByPlatform[job.platform],retryable=saved?.retryable===true;
       tabId=typeof saved==='object'?saved.id:saved;preserveTab=!!tabId&&!retryable;
       if(tabId&&!retryable&&(job.automatic||!job.resume))throw collectionError('needs_attention');
@@ -32,13 +46,14 @@ async function pump(){
         }
       }
       if(!tabId){const tab=await api.tabs.create({url:'about:blank',active:!job.automatic});tabId=tab.id;preserveTab=false;tabsByPlatform[job.platform]=tabId;await api.storage.local.set({tabsByPlatform});}
-      page=createPageAdapter(api,tabId,job.platform,{automatic:job.automatic});await report('正在读取平台；未登录时请亲自登录，不需要提供密码给工作台。','reading',job.platform);
+      page=createPageAdapter(api,tabId,job.platform,{automatic:job.automatic,checkActive});await report('正在读取平台；未登录时请亲自登录，不需要提供密码给工作台。','reading',job.platform);
       let sequence=0;
       const onBatch=job.protocol===2?async raw=>{
+        await checkActive();
         let acknowledgement;
         for(let attempt=0;attempt<2;attempt++){
           try{acknowledgement=await request(connection,'/batch',{id:job.id,sequence,raw});break;}
-          catch(error){if(attempt)throw Object.assign(error,{status:'connection_offline'});}
+          catch(error){if(error.status==='cancelled')throw error;if(attempt)throw Object.assign(error,{status:'connection_offline'});}
         }
         sequence++;
         await report(`已保存第 ${sequence} 批作品，正在继续读取…`,'reading',job.platform);
@@ -47,12 +62,13 @@ async function pump(){
       const raw=await collect({page,platform:job.platform,url:job.url,...(onBatch?{collection:job.collection,onBatch}:{})});
       result={id:job.id,status:'ok',...(onBatch?{}:{raw})};
     }
-    catch(error){const status=error?.status|| (page?await classifyCollectionError(error,page):'connection_offline');result={id:job.id,status};
+    catch(error){if(error.status==='cancelled'){await reportCancelled();return;}const status=error?.status|| (page?await classifyCollectionError(error,page):'connection_offline');result={id:job.id,status,...(COLLECTION_REASONS[error?.reason]?{reason:error.reason}:{})};
+      if(job.platform==='douyin'&&status==='parse_error'&&page){try{const diagnostics=await page.diagnose();if(diagnostics)result.diagnostics=diagnostics;}catch(error){if(error.status==='cancelled'){await reportCancelled();return;}}}
       if(tabId){tabsByPlatform[job.platform]=status==='network_error'?{id:tabId,retryable:true}:tabId;await api.storage.local.set({tabsByPlatform});}
     }
-    await request(connection,'/result',result);
+    try{await request(connection,'/result',result);}catch(error){if(error.status==='cancelled'){await reportCancelled();return;}throw error;}
     if(result.status==='ok'){if(!preserveTab){try{await api.tabs.remove(tabId);}catch{}}delete tabsByPlatform[job.platform];await api.storage.local.set({tabsByPlatform});}
-    await report(result.status==='ok'?'已提交读取结果，请回工作台查看保存结果。':COLLECTION_MESSAGES[result.status]||'读取未完成，请回工作台查看详情。',result.status==='ok'?'submitted':['needs_login','needs_attention','account_mismatch'].includes(result.status)?'attention':'error',job.platform);
+    await report(result.status==='ok'?'已提交读取结果，请回工作台查看保存结果。':COLLECTION_REASONS[result.reason]||COLLECTION_MESSAGES[result.status]||'读取未完成，请回工作台查看详情。',result.status==='ok'?'submitted':['needs_login','needs_attention','account_mismatch'].includes(result.status)?'attention':'error',job.platform);
   }catch{await report('连接或读取未完成。请确认 Desktop 已打开；可在工作台重新生成连接码。平台登录与验证需在浏览器中完成。','error');}
   finally{working=false;}
 }

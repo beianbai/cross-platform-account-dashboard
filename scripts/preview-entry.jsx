@@ -176,6 +176,7 @@ if (params.has("login"))
 if (params.has("warnings")) for (const [index, platform] of platforms.entries()) {
   state.syncByPlatform[platform.id] = { jobId: `warning-${index}`, phase: index % 2 ? "parse_error" : "needs_login", platform: platform.id, provider: "browser", url: state.accounts[platform.id]?.url || "", lastResult: index % 2 ? "未能识别平台数据，请检查页面或更新接入。" : "请在原浏览器登录，完成后继续同步。" };
 }
+if (params.has("busy")) for (const [i,id] of ["douyin","x"].entries()) state.syncByPlatform[id]={jobId:`preview-busy-${id}`,platform:id,running:true,phase:i?"queued":"reading",lastResult:i?"等待同步":"正在读取"};
 let previewPairId = null;
 window.__pswPreview = { completePair() { state.browserConnection = { ...state.browserConnection, paired: true, online: true, completedPairId: previewPairId }; } };
 window.fetch = async (url, opts) => {
@@ -194,18 +195,19 @@ window.fetch = async (url, opts) => {
     state.browserConnection.online = false;
     return Response.json({ ok: true });
   }
-  if (path.endsWith("/sync/pause")) {
+  if (path.endsWith("/sync/pause") || path.endsWith("/sync/cancel")) {
     const job = state.syncByPlatform[body.platform];
-    if (job) Object.assign(job, { running: false, phase: "paused" });
+    if (job) Object.assign(job, { running: false, phase: path.endsWith("/sync/cancel") ? "cancelled" : "paused" });
     if (state.accounts[body.platform]?.workSync) state.accounts[body.platform].workSync.status = "paused";
     return Response.json({ paused: true });
   }
   if (path.endsWith("/sync") || path.endsWith("/login")) {
+    if (!state.browserConnection.online) return Response.json({error:"浏览器未连接，恢复连接后继续同步。"},{status:400});
     const jobId = "preview-" + Date.now();
     state.syncByPlatform[body.platform] = { jobId, automatic: false, completedAt: null, running: true, phase: "queued", provider: "browser", platform: body.platform, error: "", lastResult: "等待同步" };
-    setTimeout(() => { state.syncByPlatform[body.platform] = { ...state.syncByPlatform[body.platform], phase: "reading", progress: { saved: 24, added: 7, batches: 1, mode: body.mode || "history" }, lastResult: "正在读取" }; }, 600);
+    setTimeout(() => { if (state.syncByPlatform[body.platform]?.jobId !== jobId || !state.syncByPlatform[body.platform]?.running) return; state.syncByPlatform[body.platform] = { ...state.syncByPlatform[body.platform], phase: "reading", progress: { saved: 24, added: 7, batches: 1, mode: body.mode || "history" }, lastResult: "正在读取" }; }, 600);
     setTimeout(() => {
-      if (state.syncByPlatform[body.platform]?.phase === "paused") return;
+      if (state.syncByPlatform[body.platform]?.jobId !== jobId || !state.syncByPlatform[body.platform]?.running) return;
       if (!params.has("syncerror")) {
         state.accounts[body.platform] ||= sample(body.platform);
         state.accounts[body.platform].syncedAt = new Date().toISOString();

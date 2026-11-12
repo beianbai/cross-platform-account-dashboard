@@ -39,7 +39,7 @@ test('overlarge results are rejected without consuming the current task',async t
  const {bridge}=await setup(t);const {port,token}=await pair(bridge);assert.equal((await call(port,token,'/result',{data:'x'.repeat(2*1024*1024)})).status,413);
 });
 test('a stopped browser times out and frees the next task slot',async t=>{
- const {bridge}=await setup(t,{jobTimeout:20});await pair(bridge);const result=assert.rejects(bridge.run({platform:'douyin'}),/未及时完成/);await new Promise(r=>setTimeout(r,40));await result;
+ const {bridge}=await setup(t,{pickupTimeout:20});await pair(bridge);const result=assert.rejects(bridge.run({platform:'douyin'}),/未接收/);await new Promise(r=>setTimeout(r,40));await result;
  const next=assert.rejects(bridge.run({platform:'bilibili'}),/退出/);await bridge.close();await next;
 });
 
@@ -108,4 +108,40 @@ test('Safari pairing pins its extension origin, survives restart and rejects for
  assert.equal((await call(restarted.status().port,token,'/poll',{}, {Origin:safariOrigin})).status,200);
  await restarted.revoke();
  assert.equal((await call(restarted.status().port,token,'/poll',{}, {Origin:safariOrigin})).status,401);
+});
+
+test('bridge forwards only allowlisted page failure reasons, never arbitrary error details',async t=>{
+ const {bridge}=await setup(t),{port,token}=await pair(bridge);
+ for(const reason of ['page_access_denied','page_script_error','secret-token-private-details']){
+  const pending=bridge.run({platform:'douyin'}),job=(await(await call(port,token,'/poll')).json()).job;
+  await call(port,token,'/result',{id:job.id,status:'needs_attention',reason});const result=await pending;
+  assert.equal(result.reason,reason.startsWith('page_')?reason:undefined);
+ }
+});
+
+test('undelivered tasks expire in a separate pickup window; delivery starts the reading timeout',async t=>{
+ const {bridge}=await setup(t,{pickupTimeout:25,jobTimeout:180}),{port,token}=await pair(bridge);
+ await assert.rejects(bridge.run({platform:'douyin'}),e=>e.status==='connection_offline'&&/接收/.test(e.message));
+ const next=bridge.run({platform:'douyin'});const job=(await(await call(port,token,'/poll')).json()).job;
+ await new Promise(r=>setTimeout(r,45));
+ assert.equal((await call(port,token,'/result',{id:job.id,status:'needs_login'})).status,200);
+ assert.equal((await next).status,'needs_login');
+});
+test('job liveness rejects cancelled ids and late writes without affecting the next job',async t=>{
+ const {bridge}=await setup(t),{port,token}=await pair(bridge);
+ assert.equal((await call(port,'0'.repeat(64),'/job',{id:'a'.repeat(64)})).status,401);
+ const first=bridge.run({platform:'douyin'}),rejected=assert.rejects(first,/取消/);
+ const old=(await(await call(port,token,'/poll')).json()).job;
+ assert.equal((await(await call(port,token,'/job',{id:old.id})).json()).active,true);
+ bridge.cancelCurrent();await rejected;
+ const next=bridge.run({platform:'x'}),job=(await(await call(port,token,'/poll')).json()).job;
+ assert.equal((await(await call(port,token,'/job',{id:old.id})).json()).active,false);
+ assert.equal((await call(port,token,'/result',{id:old.id,status:'ok'})).status,409);
+ assert.equal((await(await call(port,token,'/job',{id:job.id})).json()).active,true);
+ await call(port,token,'/result',{id:job.id,status:'needs_login'});await next;
+});
+test('paired but offline bridge rejects manual sync immediately after restart',async t=>{
+ const {bridge,root}=await setup(t);await pair(bridge);await bridge.close();
+ const next=await createBrowserBridge(root);t.after(()=>next.close());
+ assert.throws(()=>next.run({platform:'douyin'}),e=>e.status==='connection_offline');
 });

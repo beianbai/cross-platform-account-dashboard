@@ -3,10 +3,11 @@ import {randomBytes,randomUUID,timingSafeEqual} from 'node:crypto';
 import {mkdir,readFile,open,rename,unlink} from 'node:fs/promises';
 import {join} from 'node:path';
 import {PLATFORMS,profileURL} from './core.mjs';
+import {COLLECTION_REASONS,normalizeLoginDiagnostics} from './collector.mjs';
 const secret=()=>randomBytes(32).toString('hex');
 const equal=(a,b)=>typeof a==='string'&&typeof b==='string'&&a.length===b.length&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
 const extensionOrigin=o=>!o||/^chrome-extension:\/\/[a-p]{32}$/.test(o)||/^moz-extension:\/\/[a-f0-9-]{36}$/i.test(o)||/^safari-web-extension:\/\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(o);
-export async function createBrowserBridge(root,{jobTimeout=180000}={}){
+export async function createBrowserBridge(root,{jobTimeout=180000,pickupTimeout=45000}={}){
   const filename=join(root,'browser-connection.json');let saved={version:1,port:0,token:'',label:'',origin:''};
   try {saved=JSON.parse(await readFile(filename,'utf8'));if(saved.version!==1||!Number.isInteger(saved.port)||saved.port<1||saved.port>65535||!(saved.token===''||/^[a-f0-9]{64}$/.test(saved.token))||typeof saved.label!=='string'||!extensionOrigin(saved.origin))throw Error('invalid');}
   catch(e){if(e.code!=='ENOENT')throw Error('浏览器连接配置无法读取，已停止启动；账号快照未受影响。');}
@@ -29,13 +30,13 @@ export async function createBrowserBridge(root,{jobTimeout=180000}={}){
       current.sequence++;current.ack={ok:true,...ack};return current.ack;
     });
   }
-  function cancel(message='浏览器读取已取消，旧数据保留。'){if(pending){clearTimeout(pending.timer);pending.reject(Error(message));pending=null;}}
+  function cancel(message='浏览器读取已取消，旧数据保留。',status){if(pending){clearTimeout(pending.timer);pending.reject(Object.assign(Error(message),status?{status}:{}));pending=null;}}
   const server=createServer(async(req,res)=>{
     const origin=req.headers.origin||'';
     const send=(status,value)=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store',...(origin?{'Access-Control-Allow-Origin':origin,'Vary':'Origin'}:{})});res.end(JSON.stringify(value));};
     if(closed||revoking||req.headers.host!==`127.0.0.1:${port}`||!extensionOrigin(origin)){res.writeHead(403);res.end();return;}
     if(req.method==='OPTIONS'){res.writeHead(204,{'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Methods':'POST','Access-Control-Allow-Headers':'Authorization,Content-Type','Access-Control-Allow-Private-Network':'true','Access-Control-Max-Age':'60'});res.end();return;}
-    if(req.method!=='POST'||!['/pair','/poll','/result','/batch'].includes(req.url)){send(404,{error:'Not found'});return;}
+    if(req.method!=='POST'||!['/pair','/poll','/result','/batch','/job'].includes(req.url)){send(404,{error:'Not found'});return;}
     const token=/^Bearer ([a-f0-9]{64})$/.exec(req.headers.authorization||'')?.[1];
     if(req.url==='/pair'){
       if(!pair||pair.expiresAt<Date.now()||!equal(token,pair.token)){send(401,{error:'连接码已失效，请在工作台重新生成。'});return;}
@@ -57,16 +58,17 @@ export async function createBrowserBridge(root,{jobTimeout=180000}={}){
       if(closed||revoking||!equal(token,saved.token)){send(401,{error:'连接已撤销'});return;}
       lastSeen=Date.now();
       if(req.url==='/poll'){
-        const job=pending&&!pending.delivered?pending.job:null;if(job){pending.delivered=true;pending.onProgress?.('浏览器已接收任务，正在打开平台并检查登录。');}
+        const job=pending&&!pending.delivered?pending.job:null;if(job){pending.delivered=true;clearTimeout(pending.timer);pending.timer=setTimeout(()=>cancel('浏览器未及时完成读取。请确认扩展已启用、浏览器未休眠，再重试。','network_error'),jobTimeout);pending.timer.unref?.();pending.onProgress?.('浏览器已接收任务，正在打开平台并检查登录。');}
         send(200,{job});return;
       }
+      if(req.url==='/job'){send(200,{active:!!pending&&pending.delivered&&body.id===pending.job.id});return;}
       if(!pending||body.id!==pending.job.id||!pending.delivered){send(409,{error:'任务已结束或不匹配'});return;}
       if(req.url==='/batch'){
         const current=pending;
         send(200,await acceptBatch(current,body,()=>!closed&&pending===current&&equal(token,saved.token)));return;
       }
       if(!['ok','needs_login','needs_attention','parse_error','network_error','connection_offline','account_mismatch','error'].includes(body.status)){send(400,{error:'无效结果'});return;}
-      const current=pending;pending=null;clearTimeout(current.timer);current.resolve({status:body.status,raw:body.raw});send(200,{ok:true});
+      const current=pending;pending=null;clearTimeout(current.timer);current.resolve({status:body.status,raw:body.raw,...(current.job.platform==='douyin'&&body.status==='parse_error'&&normalizeLoginDiagnostics(body.diagnostics)?{diagnostics:normalizeLoginDiagnostics(body.diagnostics)}:{}),...(Object.hasOwn(COLLECTION_REASONS,body.reason)?{reason:body.reason}:{})});send(200,{ok:true});
     }catch(error){if(!res.headersSent)send(error.status||400,{error:error.message||'连接请求无法处理，请重试。'});else res.end();}
   });
   server.requestTimeout=10000;server.headersTimeout=10000;server.maxHeadersCount=30;
@@ -84,8 +86,8 @@ export async function createBrowserBridge(root,{jobTimeout=180000}={}){
     },
     run({platform,url='',automatic=false,resume=false,onProgress,onBatch,collection}){
       if(!PLATFORMS.includes(platform))throw Error('不支持的平台');const canonical=profileURL(platform,url);
-      if(closed||revoking||!saved.token)throw Error('请先连接你常用的浏览器。');if(pending)throw Error('已有浏览器任务正在进行');
-      return new Promise((resolve,reject)=>{const job={id:secret(),platform,url:canonical,automatic:automatic===true,resume:resume===true,...(collection?{protocol:2,collection}:{})};const timer=setTimeout(()=>cancel('浏览器未及时完成读取。请确认扩展已启用、浏览器未休眠，再重试。'),jobTimeout);timer.unref?.();pending={job,resolve,reject,timer,delivered:false,onProgress,onBatch,sequence:0,ack:null};});
+      if(closed||revoking||!saved.token)throw Error('请先连接你常用的浏览器。');if(Date.now()-lastSeen>=75000)throw Object.assign(Error('浏览器未连接，请打开浏览器并启用连接器后重试。'),{status:'connection_offline'});if(pending)throw Error('已有浏览器任务正在进行');
+      return new Promise((resolve,reject)=>{const job={id:secret(),platform,url:canonical,automatic:automatic===true,resume:resume===true,...(collection?{protocol:2,collection}:{})};const timer=setTimeout(()=>cancel('浏览器扩展未接收任务，请打开浏览器并检查连接后重试。','connection_offline'),pickupTimeout);timer.unref?.();pending={job,resolve,reject,timer,delivered:false,onProgress,onBatch,sequence:0,ack:null};});
     },
     cancelCurrent(){cancel('本次同步已取消');},
     close(){closed=true;pair=null;saved={...saved,token:''};cancel('工作台正在退出');server.closeAllConnections();return new Promise(resolve=>server.close(resolve)).then(()=>queue);}

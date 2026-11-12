@@ -113,3 +113,62 @@ test('ordinary X and Xiaohongshu refresh completes through persisted batches and
   assert.equal(failed.syncByPlatform[platform].phase,'needs_login');assert.equal(failed.accounts[platform].works.length,1);
  }
 });
+
+test('page permission failure explains website access rather than claiming platform logout or data parsing',async t=>{
+ const app=await setup(t,applySnapshot(emptyState(),'douyin',normalizeSnapshot('douyin',raw))),browser=await pair(app);
+ await app.call('sync',{platform:'douyin'});const job=await jobFrom(browser);
+ await browser('/result',{id:job.id,status:'needs_attention',reason:'page_access_denied'});
+ const s=await wait(app,s=>!s.sync.running);
+ assert.equal(s.syncByPlatform.douyin.phase,'needs_attention');assert.match(s.syncByPlatform.douyin.error,/网站.*权限/);
+ assert.equal(s.settings.platforms.douyin.lastFailureReason,'page_access_denied');assert.equal(s.accounts.douyin.fans.value,4);
+});
+
+test('cancel removes queued work and active work, preserves saved data and rejects stale cancellation',async t=>{
+ const app=await setup(t),browser=await pair(app);
+ await app.call('sync',{platform:'douyin'});const old=await jobFrom(browser);
+ await browser('/batch',{id:old.id,sequence:0,raw});
+ await app.call('sync',{platform:'x'});
+ const queued=(await app.call('state')).data.syncByPlatform.x;
+ assert.equal((await app.call('sync/cancel',{platform:'x',jobId:queued.jobId})).status,200);
+ assert.equal((await app.call('state')).data.syncByPlatform.x.phase,'cancelled');
+ const reading=(await app.call('state')).data.syncByPlatform.douyin;
+ assert.equal((await app.call('sync/cancel',{platform:'douyin',jobId:reading.jobId})).status,200);
+ await wait(app,s=>!s.sync.running);
+ assert.equal((await app.call('state')).data.syncByPlatform.douyin.phase,'cancelled');
+ assert.equal((await browser('/poll')).job,null);
+ assert.equal((await browser('/job',{id:old.id})).active,false);
+ assert((await browser('/result',{id:old.id,status:'ok',raw:{...raw,fans:'999'}})).error);
+ assert.equal((await loadState(app.root)).accounts.douyin.fans.value,4);
+ await app.call('sync',{platform:'douyin'});const next=await jobFrom(browser);
+ assert.equal((await app.call('sync/cancel',{platform:'douyin',jobId:reading.jobId})).status,409);
+ assert.equal((await browser('/job',{id:next.id})).active,true);
+ await browser('/result',{id:next.id,status:'needs_login'});await wait(app,s=>!s.sync.running);
+});
+
+test('Douyin parse diagnostics persist only allowlisted counters and flags',async t=>{
+ const app=await setup(t),browser=await pair(app);
+ const frame={titlePresent:true,profileFansPresent:false,postListPresent:false,methodTextCount:3,exactMethodLabels:0,normalizedMethodLabels:2,visibleMethodLabels:0,zeroSizeMethodLabels:0,loginInputs:2,visibleLoginInputs:2,iframes:1,openShadowRoots:0,largeAncestors:0,positionedPanels:0,privateText:'MUST-NOT-SAVE'};
+ await app.call('sync',{platform:'douyin'});const job=await jobFrom(browser);
+ await browser('/result',{id:job.id,status:'parse_error',diagnostics:{version:1,frames:[frame],url:'PRIVATE-URL'}});
+ const s=await wait(app,s=>!s.sync.running),diagnostics=s.settings.platforms.douyin.lastLoginDiagnostics;
+ assert.equal(diagnostics.frames[0].titlePresent,true);assert.equal(diagnostics.frames[0].iframes,1);
+ assert(!JSON.stringify(diagnostics).includes('PRIVATE'));assert(!JSON.stringify(diagnostics).includes('MUST-NOT-SAVE'));
+ assert.deepEqual(s.syncByPlatform.douyin.loginDiagnostics,diagnostics);
+ assert.deepEqual((await loadState(app.root)).settings.platforms.douyin.lastLoginDiagnostics,diagnostics);
+});
+
+test('failed cancellation persistence stops further sync instead of restarting an overdue schedule',async t=>{
+ const {rename,mkdir}=await import('node:fs/promises');
+ const seed=applySnapshot(emptyState(),'douyin',normalizeSnapshot('douyin',raw));
+ seed.settings.platforms.douyin.schedule.enabled=true;seed.settings.platforms.douyin.nextRunAt='2026-01-01T00:00:00Z';
+ const app=await setup(t,seed),browser=await pair(app);
+ await app.call('sync',{platform:'douyin'});const job=await jobFrom(browser);
+ await rename(join(app.root,'accounts.json'),join(app.root,'accounts.saved.json'));
+ await mkdir(join(app.root,'accounts.json'));
+ const cancelled=await app.call('sync/cancel',{platform:'douyin'});
+ assert.equal(cancelled.status,400);assert.match(cancelled.data.error,/已停止后续同步/);
+ assert.equal((await browser('/job',{id:job.id})).active,false);
+ assert.equal((await app.call('state')).status,500);
+ assert.equal((await app.call('sync',{platform:'douyin'})).status,500);
+ await new Promise(r=>setTimeout(r,1100));assert.equal((await browser('/poll')).job,null);
+});

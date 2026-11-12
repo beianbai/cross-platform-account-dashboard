@@ -1064,8 +1064,8 @@ test("library sync actions carry modes, restart, pause and default mode", async 
   app.state.syncByPlatform.douyin = { phase: "reading", running: true, progress: { saved: 31, batches: 2 } };
   await app.poll();
   assert.match(text(app.render()), /已保存 31 条 · 已读取 2 批/);
-  await button(app.render(), "暂停").props.onClick();
-  assert.equal(app.calls.findLast(c => c.path.endsWith("/sync/pause")).body.platform, "douyin");
+  await button(app.render(), "取消同步").props.onClick();
+  assert.equal(app.calls.findLast(c => c.path.endsWith("/sync/cancel")).body.platform, "douyin");
   app.state.syncByPlatform.douyin = { phase: "paused", running: false };
   app.state.accounts.douyin.workSync.historyComplete = true;
   await app.poll();
@@ -1406,4 +1406,32 @@ test("late pairing confirmation reports offline honestly", async () => {
  app.state.browserConnection={paired:true,online:false,label:"Chrome",completedPairId:"test-pair-id"};
  await app.poll();assert.match(text(app.render()),/授权成功，Chrome 暂时离线/);
  assert.doesNotMatch(text(app.render()),/已连接，可以开始同步/);
+});
+
+test("queued overview, detail and first-sync tasks expose cancel with lifecycle identity", async () => {
+ for(const empty of [false,true]){
+  const app=fixture({paired:true,empty});
+  app.state.syncByPlatform.douyin={phase:'queued',running:true,jobId:'current-job'};
+  await button(app.render(),'取消同步').props.onClick();
+  assert.equal(app.calls.findLast(c=>c.path.endsWith('/sync/cancel')).body.jobId,'current-job');
+ }
+ const app=fixture({paired:true});app.state.syncByPlatform.douyin={phase:'reading',running:true,jobId:'reading-job'};
+ button(app.render(),'查看详情').props.onClick();
+ await button(app.render(),'取消同步').props.onClick();
+ assert.equal(app.calls.findLast(c=>c.path.endsWith('/sync/cancel')).body.platform,'douyin');
+});
+test("failed cancel remains actionable and reports the failure",async()=>{
+ const app=fixture({paired:true,requestFailures:{'sync/cancel':'保存失败，请重试'}});
+ app.state.syncByPlatform.douyin={phase:'reading',running:true,jobId:'reading-job'};
+ await button(app.render(),'取消同步').props.onClick();
+ assert.match(text(app.render()),/保存失败，请重试/);
+ assert.equal(button(app.render(),'取消同步').props.disabled,false);
+});
+
+test("Douyin diagnostic preview omits arbitrary strings and account fields",()=>{
+ const app=fixture({paired:true});
+ app.state.settings.platforms.douyin.lastLoginDiagnostics={version:1,frames:[{titlePresent:true,iframes:1,loginInputs:2,secret:'PRIVATE-ACCOUNT',postListPresent:'PRIVATE-TEXT'}],url:'PRIVATE-URL'};
+ button(app.render(),'设置').props.onClick();button(app.render(),'查看诊断信息').props.onClick();
+ const preview=nodes(app.render()).find(n=>n.type==='textarea'&&n.props.readOnly).props.value;
+ assert.match(preview,/抖音登录检测/);assert.match(preview,/"titlePresent":true/);assert(!preview.includes('PRIVATE'));
 });

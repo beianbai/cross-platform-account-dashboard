@@ -6,6 +6,7 @@ import {PLATFORMS,emptyState,validateState,profileURL,normalizeSnapshot,applySna
 import {PLATFORM_DEFINITIONS} from '../src/platforms.mjs';
 import {loadState,saveState} from '../src/store.mjs';
 import {createBrowserBridge} from '../src/browser-bridge.mjs';
+import {COLLECTION_REASONS,normalizeLoginDiagnostics} from '../src/collector.mjs';
 import {validateSchedule,nextOccurrence,duePlatforms,failureTransition} from '../src/scheduler.mjs';
 const rootLifetimes=new Map();
 const unconfirmedReasons=new Set(['no_progress','no_pagination_evidence','category_not_ready']);
@@ -26,7 +27,7 @@ export function apply(ctx,config) {
     if(disposed)return;
     await Promise.all([loadState(root).then(s=>{state=s;}).catch(e=>{loadError=e.message;}),createBrowserBridge(root).then(async b=>{if(disposed)await b.close();else bridge=b;}).catch(()=>{bridgeError='本机连接服务未启动，请检查连接设置；旧账号数据保留。';})]);
     for(const account of Object.values(state.accounts))if(account.workSync?.status==='running'){account.workSync={...account.workSync,status:'paused',reason:'interrupted'};}
-    for(const id of PLATFORMS){const s=platformSettings(state,id);syncByPlatform[id]={running:false,platform:id,provider:'browser',url:state.accounts[id]?.url,phase:s.lastStatus==='paused'&&unconfirmedReasons.has(state.accounts[id]?.workSync?.reason)?'partial':s.pausedReason||(['queued','reading'].includes(s.lastStatus)?'idle':s.lastStatus)||'idle',lastResult:s.lastResult||'',error:''};}
+    for(const id of PLATFORMS){const s=platformSettings(state,id);syncByPlatform[id]={running:false,platform:id,provider:'browser',url:state.accounts[id]?.url,phase:s.lastStatus==='cancelled'?'cancelled':s.lastStatus==='paused'&&unconfirmedReasons.has(state.accounts[id]?.workSync?.reason)?'partial':s.pausedReason||(['queued','reading'].includes(s.lastStatus)?'idle':s.lastStatus)||'idle',lastResult:s.lastResult||'',error:''};}
   });
   function mutate(fn){const op=commit.then(async()=>{if(disposed)throw Error('工作台正在退出');if(loadError)throw Error(loadError);const next=fn(state);await saveState(root,next);state=next;return next;});commit=op.catch(()=>{});return op;}
   function withSettings(s,id,patch){return {...s,settings:{...s.settings,platforms:{...s.settings.platforms,[id]:{...platformSettings(s,id),...patch}}}};}
@@ -45,6 +46,7 @@ export function apply(ctx,config) {
       account.workLibrary={...account.workLibrary,added:job.added,updated:job.updated};
       return next;
     });
+    if(!valid(job))throw Error('本次同步已取消');
     job.batches++;
     const account=state.accounts[job.platform];
     status(job,{lastResult:`已保存 ${account.works.length} 条作品，本次新增 ${job.added} 条`,progress:{saved:account.works.length,added:job.added,batches:job.batches,mode:job.collection.mode}});
@@ -53,14 +55,14 @@ export function apply(ctx,config) {
   async function execute(job){
     if(!valid(job))return;
     job.known=new Set((state.accounts[job.platform]?.works||[]).map(w=>w.id||new URL(w.url).pathname));job.added=0;job.updated=0;job.batches=0;
-    status(job,{running:true,phase:'reading',error:'',lastResult:'正在同步账号'});
+    status(job,{running:true,phase:'reading',error:'',failureReason:null,loginDiagnostics:null,lastResult:'正在同步账号'});
     try{
-      await mutate(s=>withSettings(s,job.platform,{lastAttemptAt:new Date().toISOString(),lastStatus:'reading',lastResult:'正在同步账号'}));
+      await mutate(s=>withSettings(s,job.platform,{lastAttemptAt:new Date().toISOString(),lastStatus:'reading',lastLoginDiagnostics:null,lastResult:'正在同步账号'}));
       if(!valid(job))return;
-      const connection=bridge?.status();if(!connection?.paired||(job.automatic&&!connection.online))throw Object.assign(Error(MESSAGES.connection_offline),{status:'connection_offline'});
+      const connection=bridge?.status();if(!connection?.paired||!connection.online)throw Object.assign(Error(MESSAGES.connection_offline),{status:'connection_offline'});
       const result=await bridge.run({platform:job.platform,url:job.url,automatic:job.automatic,resume:job.resume,collection:job.collection,onBatch:raw=>saveBatch(job,raw),onProgress:message=>{if(valid(job))status(job,{lastResult:message});}});
       if(!valid(job))return;
-      if(result.status!=='ok')throw Object.assign(Error(MESSAGES[result.status]||MESSAGES.needs_attention),{status:result.status==='error'?'needs_attention':result.status});
+      if(result.status!=='ok')throw Object.assign(Error(MESSAGES[result.status]||MESSAGES.needs_attention),{status:result.status==='error'?'needs_attention':result.status,reason:result.reason,diagnostics:result.diagnostics});
       if(!job.batches){
         try{await saveBatch(job,result.raw);}catch(e){throw Object.assign(e,{status:/账号|绑定|不一致/.test(e.message)?'account_mismatch':'parse_error'});}
       }
@@ -71,17 +73,19 @@ export function apply(ctx,config) {
       await mutate(s=>{
         if(!valid(job))return s;
         const settings=platformSettings(s,job.platform);
-        return withSettings(s,job.platform,{recovery:null,pausedReason:null,retryCount:0,lastStatus:partial?'partial':paused?'paused':'complete',lastResult:message,nextRunAt:nextOccurrence(settings.schedule)});
+        return withSettings(s,job.platform,{recovery:null,pausedReason:null,retryCount:0,lastFailureReason:null,lastStatus:partial?'partial':paused?'paused':'complete',lastResult:message,nextRunAt:nextOccurrence(settings.schedule)});
       });
       if(valid(job))status(job,{completedAt:new Date().toISOString(),running:false,phase:partial?'partial':paused?'paused':'complete',error:'',lastResult:message});
     }catch(e){
       if(!valid(job))return;
       const phase=MESSAGES[e.status]?e.status:/超时|网络|及时/.test(e.message)?'network_error':'parse_error';
-      const message=MESSAGES[phase];
-      try{await mutate(s=>{if(!valid(job))return s;const settings=platformSettings(s,job.platform);let next=withSettings(s,job.platform,{...failureTransition(phase,settings.retryCount||0,Date.now(),settings.schedule),lastStatus:phase,lastResult:message});if(next.accounts[job.platform]?.workSync)next={...next,accounts:{...next.accounts,[job.platform]:{...next.accounts[job.platform],workSync:{...next.accounts[job.platform].workSync,status:'paused',reason:phase}}}};return next;});}
+      const reason=Object.hasOwn(COLLECTION_REASONS,e.reason)?e.reason:null;
+      const message=COLLECTION_REASONS[reason]||MESSAGES[phase];
+      const diagnostics=job.platform==='douyin'&&phase==='parse_error'?normalizeLoginDiagnostics(e.diagnostics)||null:null;
+      try{await mutate(s=>{if(!valid(job))return s;const settings=platformSettings(s,job.platform);let next=withSettings(s,job.platform,{...failureTransition(phase,settings.retryCount||0,Date.now(),settings.schedule),lastStatus:phase,lastResult:message,lastFailureReason:reason,lastLoginDiagnostics:diagnostics});if(next.accounts[job.platform]?.workSync)next={...next,accounts:{...next.accounts,[job.platform]:{...next.accounts[job.platform],workSync:{...next.accounts[job.platform].workSync,status:'paused',reason:phase}}}};return next;});}
       catch{loadError='本地数据无法保存，已停止后续同步以保护已有记录。';}
-      status(job,{completedAt:new Date().toISOString(),running:false,phase,error:message,lastResult:message});
-    }finally{if(!valid(job))status(job,{running:false,phase:'idle',error:'',lastResult:'任务已暂停，已保存的作品和进度保留'});}
+      if(valid(job))status(job,{completedAt:new Date().toISOString(),running:false,phase,error:message,lastResult:message,failureReason:reason,loginDiagnostics:diagnostics});
+    }
   }
   function drain(){if(active||disposed)return;const job=queue.shift();if(!job)return;active=job;worker=execute(job).finally(()=>{active=null;drain();});}
   function enqueue(data,automatic=false){
@@ -90,6 +94,7 @@ export function apply(ctx,config) {
     const bound=state.accounts[id]?.url||'',url=profileURL(id,data.url||'');
     if(bound&&url&&bound!==url)throw Error('已有绑定账号，请先解除绑定');
     if(!bridge?.status().paired)throw Error('请先连接浏览器');
+    if(!bridge.status().online)throw Error(MESSAGES.connection_offline);
     if(data.mode!==undefined&&!['refresh','history','incremental'].includes(data.mode))throw Error('请选择有效的同步方式');
     const account=state.accounts[id];
     const mode=data.mode||'refresh';
@@ -144,21 +149,27 @@ export function apply(ctx,config) {
   });
   async function synchronize(request,login=false){await ready;if(loadError)return json({error:loadError},500);if(disposed)return json({error:'工作台正在退出'},503);try{const data=await body(request,true);if(login)data.resume=true;enqueue(data);return json({started:true},202);}catch(e){return json({error:e.message},400);}}
   register('sync','POST',request=>synchronize(request));register('login','POST',request=>synchronize(request,true));
-  register('sync/pause','POST',async request=>{
+  async function stopSync(request,cancelled=false){
     await ready;try{
-      const {platform}=await body(request,true);
+      const {platform,jobId}=await body(request,true),current=syncByPlatform[platform];
+      if(jobId&&jobId!==current?.jobId)return json({error:'这次任务已结束，请刷新后查看当前任务。'},409);
+      if(!current?.running)return json({ok:true});
       revisions[platform]=(revisions[platform]||0)+1;
       for(let i=queue.length-1;i>=0;i--)if(queue[i].platform===platform)queue.splice(i,1);
-      if(active?.platform===platform){bridge?.cancelCurrent();}
-      await mutate(s=>{
-        let next=withSettings(s,platform,{pausedReason:'user_paused',lastStatus:'paused',lastResult:'已暂停，已保存的作品和进度保留'});
+      const message=cancelled?'已取消同步，已保存的数据和进度保留':'已暂停，已保存的作品和进度保留';
+      const stopped={...current,running:false,phase:cancelled?'cancelled':'paused',error:'',failureReason:null,completedAt:new Date().toISOString(),lastResult:message};
+      syncByPlatform[platform]=stopped;if(sync.jobId===current.jobId)sync=stopped;
+      if(active?.platform===platform)bridge?.cancelCurrent();
+      try{await mutate(s=>{
+        let next=withSettings(s,platform,{pausedReason:'user_paused',lastStatus:cancelled?'cancelled':'paused',lastResult:message,lastFailureReason:null});
         if(next.accounts[platform]?.workSync)next={...next,accounts:{...next.accounts,[platform]:{...next.accounts[platform],workSync:{...next.accounts[platform].workSync,status:'paused',reason:'user_paused'}}}};
         return next;
-      });
-      syncByPlatform[platform]={...syncByPlatform[platform],running:false,phase:'paused',error:'',lastResult:'已暂停，已保存的作品和进度保留'};
+      });}catch{loadError='本地取消状态无法保存，已停止后续同步以保护已有记录。';throw Error(loadError);}
       return json({ok:true});
     }catch(e){return json({error:e.message},400);}
-  });
+  }
+  register('sync/pause','POST',request=>stopSync(request));
+  register('sync/cancel','POST',request=>stopSync(request,true));
   register('unbind','POST',async request=>{await ready;try{const data=await body(request,true);if(data.confirm!==true)throw Error('请确认解除绑定');revisions[data.platform]=(revisions[data.platform]||0)+1;for(let i=queue.length-1;i>=0;i--)if(queue[i].platform===data.platform)queue.splice(i,1);if(active?.platform===data.platform){bridge?.cancelCurrent();}await mutate(s=>unbindAccount(s,data.platform));syncByPlatform[data.platform]={running:false,platform:data.platform,phase:'idle',error:'',lastResult:'已解除绑定，历史已保留'};return json({ok:true});}catch(e){return json({error:e.message},400);}});
   register('browser/download','GET',async()=>{try{const data=await readFile(new URL('../lib/browser-connector.zip',import.meta.url));return new Response(data,{headers:{'Content-Type':'application/zip','Content-Disposition':'attachment; filename="personal-social-browser-connector.zip"','Cache-Control':'no-store'}});}catch{return json({error:'连接器未就绪，请更新工作台'},503);}});
   register('browser/pair','POST',async()=>{await ready;if(active)return json({error:'请等待当前同步完成'},409);try{if(disposed||!bridge)throw Error(bridgeError||'连接服务不可用');return json(bridge.beginPair());}catch(e){return json({error:e.message},503);}});
